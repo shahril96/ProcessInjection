@@ -18,7 +18,7 @@ HRESULT ExecuteCode::CreateRemoteThread_LoadLibrary(
 	if (!LoadLibraryProc) {
 		printf(
 			"GetProcAddress: %s\n",
-			Util::GetLastErrorAsString().c_str()
+			Util::getLastErrorAsString().c_str()
 		);
 		return E_FAIL;
 	}
@@ -43,7 +43,7 @@ HRESULT ExecuteCode::CreateRemoteThread_LoadLibrary(
 	if (!hThread.get()) {
 		printf(
 			"CreateRemoteThread: %s\n",
-			Util::GetLastErrorAsString().c_str()
+			Util::getLastErrorAsString().c_str()
 		);
 		return E_FAIL;
 	}
@@ -68,13 +68,13 @@ HRESULT ExecuteCode::APC_Injection(
 	if (!LoadLibraryProc) {
 		printf(
 			"GetProcAddress: %s\n",
-			Util::GetLastErrorAsString().c_str()
+			Util::getLastErrorAsString().c_str()
 		);
 		return E_FAIL;
 	}
 
 	// Find if they are any alertable thread in the process
-	AlertableTid = Util::FindAlertableThread(hProcess);
+	AlertableTid = Util::findAlertableThread(hProcess);
 
 	if (!AlertableTid) {
 		printf(
@@ -91,7 +91,7 @@ HRESULT ExecuteCode::APC_Injection(
 	if (!hThread.get()) {
 		printf(
 			"OpenThread: %s\n",
-			Util::GetLastErrorAsString().c_str()
+			Util::getLastErrorAsString().c_str()
 		);
 		return E_FAIL;
 	}
@@ -106,7 +106,7 @@ HRESULT ExecuteCode::APC_Injection(
 	if (!dRet) {
 		printf(
 			"QueueUserAPC: %s\n",
-			Util::GetLastErrorAsString().c_str()
+			Util::getLastErrorAsString().c_str()
 		);
 		return E_FAIL;
 	}
@@ -124,7 +124,7 @@ HRESULT ExecuteCode::SuspendThreadResume(
 	CONTEXT				ctx = { 0 };
 	std::vector<DWORD>  ThreadIDs;
 
-	Util::EnumProcessThreads(
+	Util::enumProcessThreads(
 		::GetProcessId(hProcess.get()),
 		ThreadIDs
 	);
@@ -148,7 +148,7 @@ HRESULT ExecuteCode::SuspendThreadResume(
 	if (!hThread.get()) {
 		printf(
 			"OpenThread: %s\n",
-			Util::GetLastErrorAsString().c_str()
+			Util::getLastErrorAsString().c_str()
 		);
 		return E_FAIL;
 	}
@@ -158,7 +158,7 @@ HRESULT ExecuteCode::SuspendThreadResume(
 	if (FAILED(dRet)) {
 		printf(
 			"SuspendThread: %s\n",
-			Util::GetLastErrorAsString().c_str()
+			Util::getLastErrorAsString().c_str()
 		);
 		return E_FAIL;
 	}
@@ -169,7 +169,7 @@ HRESULT ExecuteCode::SuspendThreadResume(
 	if (!bRet) {
 		printf(
 			"GetThreadContext: %s\n",
-			Util::GetLastErrorAsString().c_str()
+			Util::getLastErrorAsString().c_str()
 		);
 		return E_FAIL;
 	}
@@ -191,6 +191,8 @@ HRESULT ExecuteCode::SuspendThreadResume(
 	printf("ecx = 0x%x\n", ctx.Ecx);
 	printf("edx = 0x%x\n", ctx.Edx);
 	printf("\n");
+
+
 
 #endif
 

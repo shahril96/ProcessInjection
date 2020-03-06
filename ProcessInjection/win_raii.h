@@ -29,20 +29,22 @@ namespace RAII {
 	{
 		HANDLE hProcess;
 		LPVOID addr;
+		size_t size;
 		BOOL   error;
 
 		VirtualAllocExWrapper()
 			: hProcess(NULL)
 			, addr(NULL)
+			, size(0)
 			, error(false)
 		{
 		}
 
-		VirtualAllocExWrapper(HANDLE _hProcess, size_t size)
+		VirtualAllocExWrapper(HANDLE _hProcess, size_t _size)
 			: hProcess(NULL)
 			, error(false)
 		{
-			this->reset(_hProcess, size);
+			this->reset(_hProcess, _size);
 		}
 
 		~VirtualAllocExWrapper()
@@ -58,19 +60,22 @@ namespace RAII {
 
 			this->addr = NULL;
 			this->hProcess = NULL;
+			this->size = NULL;
 		}
 
-		void reset(HANDLE _hProcess, size_t size)
+		void reset(HANDLE _hProcess, size_t _size)
 		{
-			if (_hProcess && size) {
+			if (_hProcess && _size) {
 
 				this->free();
 
 				this->hProcess = _hProcess;
+				this->size = _size;
+
 				this->addr = ::VirtualAllocEx(
 					this->hProcess,
 					NULL,
-					size,
+					this->size,
 					MEM_RESERVE | MEM_COMMIT,
 					PAGE_READWRITE
 				);

@@ -25,14 +25,14 @@ int main(int argc, char* argv[])
 		return EXIT_FAILURE;
 	}
 
-	sscanf_s(argv[1], "%d", &pid);
+	sscanf_s(argv[1], "%u", &pid);
 	dllPath = argv[2];
 
-	Util::IsProcessNative(::GetCurrentProcessId(), &currProcess);
-	Util::IsProcessNative(pid, &targProcess);
+	Util::isProcessNative(::GetCurrentProcessId(), &currProcess);
+	Util::isProcessNative(pid, &targProcess);
 
 	if (currProcess != targProcess) {
-		printf("This injector is incompatible with target process.\n");
+		printf("This injector bitness is incompatible with target process.\n");
 		return EXIT_FAILURE;
 	}
 

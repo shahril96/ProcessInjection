@@ -27,7 +27,7 @@ HRESULT Injector::WriteProcessMemory_CreateRemoteThread(
 	if (!hProcess.get()) {
 		printf(
 			"OpenProcess: %s\n",
-			Util::GetLastErrorAsString().c_str()
+			Util::getLastErrorAsString().c_str()
 		);
 		return E_FAIL;
 	}
@@ -49,7 +49,7 @@ HRESULT Injector::WriteProcessMemory_CreateRemoteThread(
 	if (!bRet) {
 		printf(
 			"WriteProcessMemory: %s\n",
-			Util::GetLastErrorAsString().c_str()
+			Util::getLastErrorAsString().c_str()
 		);
 	}
 
@@ -74,7 +74,7 @@ HRESULT Injector::WriteProcessMemory_APCInjector(
 	if (!hProcess.get()) {
 		printf(
 			"OpenProcess: %s\n",
-			Util::GetLastErrorAsString().c_str()
+			Util::getLastErrorAsString().c_str()
 		);
 		return E_FAIL;
 	}
@@ -96,7 +96,7 @@ HRESULT Injector::WriteProcessMemory_APCInjector(
 	if (!bRet) {
 		printf(
 			"WriteProcessMemory: %s\n",
-			Util::GetLastErrorAsString().c_str()
+			Util::getLastErrorAsString().c_str()
 		);
 	}
 
@@ -110,8 +110,8 @@ HRESULT Injector::WriteProcessMemory_SuspendThreadResume(
 	const std::string& dllPath
 )
 {
-	BOOL    bRet;
 	HRESULT hRet;
+	BOOL    bRet;
 	RAII::VirtualAllocExWrapper MemAddr;
 
 	RAII::HandlePtr hProcess{
@@ -121,7 +121,7 @@ HRESULT Injector::WriteProcessMemory_SuspendThreadResume(
 	if (!hProcess.get()) {
 		printf(
 			"OpenProcess: %s\n",
-			Util::GetLastErrorAsString().c_str()
+			Util::getLastErrorAsString().c_str()
 		);
 		return E_FAIL;
 	}
@@ -143,11 +143,23 @@ HRESULT Injector::WriteProcessMemory_SuspendThreadResume(
 	if (!bRet) {
 		printf(
 			"WriteProcessMemory: %s\n",
-			Util::GetLastErrorAsString().c_str()
+			Util::getLastErrorAsString().c_str()
 		);
 	}
 
-	hRet = ExecuteCode::SuspendThreadResume(hProcess, MemAddr.get());
+
+	// search for "pop esp; ret"
+	std::vector<LPVOID> GadgetList;
+	hRet = Util::findInstruction(hProcess, GadgetList, "5c c3");
+
+	if (FAILED(hRet)) {
+		printf("Failed to find ROP gadget in the target process memory space\n");
+		return E_FAIL;
+	}
+
+
+
+	//hRet = ExecuteCode::SuspendThreadResume(hProcess, MemAddr.get());
 
 	return SUCCEEDED(hRet);
 }
