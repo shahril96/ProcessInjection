@@ -113,5 +113,86 @@ HRESULT ExecuteCode::APC_Injection(
 
 	return S_OK;
 }
+
+HRESULT ExecuteCode::SuspendThreadResume(
+	const RAII::HandlePtr& hProcess,
+	LPVOID Argv
+)
+{
+	BOOL				bRet;
+	DWORD				dRet;
+	CONTEXT				ctx = { 0 };
+	std::vector<DWORD>  ThreadIDs;
+
+	Util::EnumProcessThreads(
+		::GetProcessId(hProcess.get()),
+		ThreadIDs
+	);
+
+	if (ThreadIDs.empty()) {
+		printf("Util::EnumProcessThreads(): Failed to get list of threads\n");
+		return E_FAIL;
+	}
+
+	// TODO!: currently using last element as chosen thread, which is not safe
+	// RESEARCH: how to pick up the good thread (which will not affect the entire program)
+	RAII::HandlePtr hThread(
+		::OpenThread(
+			THREAD_GET_CONTEXT | THREAD_SET_CONTEXT 
+			| THREAD_SUSPEND_RESUME,
+			FALSE,
+			ThreadIDs.back()
+		)
+	);
+
+	if (!hThread.get()) {
+		printf(
+			"OpenThread: %s\n",
+			Util::GetLastErrorAsString().c_str()
+		);
+		return E_FAIL;
+	}
+
+	dRet = ::SuspendThread(hThread.get());
+
+	if (FAILED(dRet)) {
+		printf(
+			"SuspendThread: %s\n",
+			Util::GetLastErrorAsString().c_str()
+		);
+		return E_FAIL;
+	}
+
+	ctx.ContextFlags = CONTEXT_ALL;
+	bRet = ::GetThreadContext(hThread.get(), &ctx);
+
+	if (!bRet) {
+		printf(
+			"GetThreadContext: %s\n",
+			Util::GetLastErrorAsString().c_str()
+		);
+		return E_FAIL;
+	}
+
+#ifdef _WIN64
+	
+	printf("\n\n");
+	printf("rax = 0x%llx\n", ctx.Rax);
+	printf("rbx = 0x%llx\n", ctx.Rbx);
+	printf("rcx = 0x%llx\n", ctx.Rcx);
+	printf("rdx = 0x%llx\n", ctx.Rdx);
+	printf("\n");
+
+#else
+
+	printf("\n\n");
+	printf("eax = 0x%x\n", ctx.Eax);
+	printf("ebx = 0x%x\n", ctx.Ebx);
+	printf("ecx = 0x%x\n", ctx.Ecx);
+	printf("edx = 0x%x\n", ctx.Edx);
+	printf("\n");
+
+#endif
+
 	return S_OK;
 }

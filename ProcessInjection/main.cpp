@@ -12,6 +12,7 @@ int main(int argc, char* argv[])
 {
 	DWORD pid;
 	LPCSTR dllPath;
+	HRESULT ret;
 
 	// to determine bitness
 	BOOL currProcess;
@@ -34,6 +35,8 @@ int main(int argc, char* argv[])
 		printf("This injector is incompatible with target process.\n");
 		return EXIT_FAILURE;
 	}
+
+	ret = Injector::WriteProcessMemory_SuspendThreadResume(pid, dllPath);
 
 	if (ret != S_OK) {
 		printf("DLL Injection failed!\n");

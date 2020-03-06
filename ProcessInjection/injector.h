@@ -15,4 +15,9 @@ namespace Injector
 		DWORD pid,
 		const std::string& dllPath
 	);
+
+	HRESULT WriteProcessMemory_SuspendThreadResume(
+		DWORD pid,
+		const std::string& dllPath
+	);
 }

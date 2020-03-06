@@ -16,4 +16,9 @@ namespace ExecuteCode
 		const RAII::HandlePtr& hProcess,
 		LPVOID Argv
 	);
+
+	HRESULT SuspendThreadResume(
+		const RAII::HandlePtr& hProcess,
+		LPVOID Argv
+	);
 };
