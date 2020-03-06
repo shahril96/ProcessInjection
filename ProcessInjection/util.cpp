@@ -291,14 +291,10 @@ HRESULT Util::findPage(
                 p += MemoryInfo.RegionSize
                 )
             {
-                //printPageInfo(&MemoryInfo, p);
-
-                // if page's protection doesn't match our `Protection` param
+                // if page's protection match our `Protection` param
                 if (MemoryInfo.Protect & Protection) {
-                    continue;
+                    MemoryInfoList.push_back(MemoryInfo);
                 }
-
-                MemoryInfoList.push_back(MemoryInfo);
             }
         }
     }
@@ -318,7 +314,11 @@ HRESULT Util::findInstruction(
 
     std::vector<MEMORY_BASIC_INFORMATION> MemoryInfoList;
     
-    hRet = Util::findPage(hProcess, MemoryInfoList, PAGE_EXECUTE);
+    hRet = Util::findPage(
+        hProcess,
+        MemoryInfoList,
+        PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY
+    );
 
     if (FAILED(hRet)) {
         printf("Failed to find memory pages on foreign process\n");

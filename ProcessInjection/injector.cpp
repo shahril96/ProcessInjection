@@ -147,17 +147,16 @@ HRESULT Injector::WriteProcessMemory_SuspendThreadResume(
 		);
 	}
 
-
 	// search for "pop esp; ret"
 	std::vector<LPVOID> GadgetList;
-	hRet = Util::findInstruction(hProcess, GadgetList, "5c c3");
+	hRet = Util::findInstruction(hProcess, GadgetList, "5C C3");
 
 	if (FAILED(hRet)) {
 		printf("Failed to find ROP gadget in the target process memory space\n");
 		return E_FAIL;
 	}
 
-
+	printf("Found (%u) rop gadget!\n", GadgetList.size());
 
 	//hRet = ExecuteCode::SuspendThreadResume(hProcess, MemAddr.get());
 
