@@ -5,12 +5,17 @@
 
 #include <iostream>
 
+#include "util.h"
 #include "injector.h"
 
 int main(int argc, char* argv[])
 {
 	DWORD pid;
 	LPCSTR dllPath;
+
+	// to determine bitness
+	BOOL currProcess;
+	BOOL targProcess;
 
 	if (argc != 3) {
 		printf("\n");
@@ -22,10 +27,16 @@ int main(int argc, char* argv[])
 	sscanf_s(argv[1], "%d", &pid);
 	dllPath = argv[2];
 
-	HRESULT ret = Injector::WriteProcessMemory_APCInjector(pid, dllPath);
+	Util::IsProcessNative(::GetCurrentProcessId(), &currProcess);
+	Util::IsProcessNative(pid, &targProcess);
+
+	if (currProcess != targProcess) {
+		printf("This injector is incompatible with target process.\n");
+		return EXIT_FAILURE;
+	}
 
 	if (ret != S_OK) {
-		printf("DLL Injection failed!");
+		printf("DLL Injection failed!\n");
 		return EXIT_FAILURE;
 	}
 

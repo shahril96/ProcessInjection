@@ -41,6 +41,33 @@ std::string Util::GetLastErrorAsString()
     return std::move(message);
 }
 
+HRESULT Util::IsProcessNative(DWORD pid, PBOOL result)
+{
+    *result = FALSE;
+
+    RAII::HandlePtr hProcess{
+        ::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid)
+    };
+
+    if (!hProcess.get()) {
+        printf(
+            "OpenProcess: %s\n",
+            Util::GetLastErrorAsString().c_str()
+        );
+        return E_FAIL;
+    }
+
+    if (!::IsWow64Process(hProcess.get(), result)) {
+        printf(
+            "IsWow64Process: %s\n",
+            Util::GetLastErrorAsString().c_str()
+        );
+        return E_FAIL;
+    }
+
+    return S_OK;
+}
+
 HRESULT Util::EnumProcessThreads(DWORD pid, std::vector<DWORD>& ThreadIDs)
 {
     BOOL          bRet;
@@ -163,25 +190,28 @@ DWORD Util::FindAlertableThread(const RAII::HandlePtr& hProcess)
         StoreEventHandle.push_back(hEvent);
     }
 
-    // now we wait for any of 
-    // alertable thread to trigger
-    idxThread = WaitForMultipleObjects(
-        StoreEventHandle.size(),
-        &StoreEventHandle[0],
-        FALSE, // stop wait if any thread is alerted
-        1000
-    );
+    if (!StoreEventHandle.empty()) {
 
-    // return thread ID which is alertable state
-    if (idxThread != WAIT_TIMEOUT) {
-        if (idxThread < ThreadIDs.size()) {
-            tid = ThreadIDs[idxThread];
+        // now we wait for any of 
+        // alertable thread to trigger
+        idxThread = WaitForMultipleObjects(
+            (DWORD)StoreEventHandle.size(),
+            &StoreEventHandle[0],
+            FALSE, // stop wait if any thread is alerted
+            1000
+        );
+
+        // return thread ID which is alertable state
+        if (idxThread != WAIT_TIMEOUT) {
+            if (idxThread < ThreadIDs.size()) {
+                tid = ThreadIDs[idxThread];
+            }
         }
-    }
 
-    // manually clean-up event object
-    for (const HANDLE& handle : StoreEventHandle) {
-        CloseHandle(handle);
+        // manually clean-up event object
+        for (const HANDLE& handle : StoreEventHandle) {
+            CloseHandle(handle);
+        }
     }
 
     return tid;

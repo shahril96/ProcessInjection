@@ -16,7 +16,10 @@ HRESULT ExecuteCode::CreateRemoteThread_LoadLibrary(
 	);
 
 	if (!LoadLibraryProc) {
-		printf("GetProcAddress: %s\n", Util::GetLastErrorAsString().c_str());
+		printf(
+			"GetProcAddress: %s\n",
+			Util::GetLastErrorAsString().c_str()
+		);
 		return E_FAIL;
 	}
 
@@ -38,7 +41,10 @@ HRESULT ExecuteCode::CreateRemoteThread_LoadLibrary(
 	};
 
 	if (!hThread.get()) {
-		printf("CreateRemoteThread: %s\n", Util::GetLastErrorAsString().c_str());
+		printf(
+			"CreateRemoteThread: %s\n",
+			Util::GetLastErrorAsString().c_str()
+		);
 		return E_FAIL;
 	}
 
@@ -50,12 +56,12 @@ HRESULT ExecuteCode::APC_Injection(
 	LPVOID ArgvAddr
 )
 {
-	DWORD dRet;
-	DWORD AlertableTid;
+	DWORD  dRet;
+	DWORD  AlertableTid;
 	LPVOID LoadLibraryProc;
 	
-	LoadLibraryProc = (LPVOID)GetProcAddress(
-		GetModuleHandle(L"kernel32.dll"),
+	LoadLibraryProc = (LPVOID)::GetProcAddress(
+		::GetModuleHandle(L"kernel32.dll"),
 		"LoadLibraryA"
 	);
 
@@ -79,11 +85,19 @@ HRESULT ExecuteCode::APC_Injection(
 	}
 
 	RAII::HandlePtr hThread(
-		OpenThread(THREAD_SET_CONTEXT, FALSE, AlertableTid)
+		::OpenThread(THREAD_SET_CONTEXT, FALSE, AlertableTid)
 	);
 
+	if (!hThread.get()) {
+		printf(
+			"OpenThread: %s\n",
+			Util::GetLastErrorAsString().c_str()
+		);
+		return E_FAIL;
+	}
+
 	// Queue our APC into target alertable thread
-	dRet = QueueUserAPC(
+	dRet = ::QueueUserAPC(
 		(PAPCFUNC)LoadLibraryProc,
 		hThread.get(),
 		(ULONG_PTR)ArgvAddr
@@ -97,5 +111,7 @@ HRESULT ExecuteCode::APC_Injection(
 		return E_FAIL;
 	}
 
+	return S_OK;
+}
 	return S_OK;
 }

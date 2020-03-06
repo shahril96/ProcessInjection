@@ -16,6 +16,7 @@ HRESULT Injector::WriteProcessMemory_CreateRemoteThread(
 	const std::string& dllPath
 )
 {
+	BOOL    bRet;
 	HRESULT hRet;
 	RAII::VirtualAllocExWrapper MemAddr;
 
@@ -24,7 +25,10 @@ HRESULT Injector::WriteProcessMemory_CreateRemoteThread(
 	};
 
 	if (!hProcess.get()) {
-		printf("OpenProcess: %s\n", Util::GetLastErrorAsString().c_str());
+		printf(
+			"OpenProcess: %s\n",
+			Util::GetLastErrorAsString().c_str()
+		);
 		return E_FAIL;
 	}
 
@@ -34,7 +38,7 @@ HRESULT Injector::WriteProcessMemory_CreateRemoteThread(
 		return E_FAIL;
 	}
 
-	hRet = ::WriteProcessMemory(
+	bRet = ::WriteProcessMemory(
 		hProcess.get(),
 		MemAddr.get(),
 		dllPath.c_str(),
@@ -42,13 +46,16 @@ HRESULT Injector::WriteProcessMemory_CreateRemoteThread(
 		NULL
 	);
 
-	if (!hRet) {
-		printf("WriteProcessMemory: %s\n", Util::GetLastErrorAsString().c_str());
+	if (!bRet) {
+		printf(
+			"WriteProcessMemory: %s\n",
+			Util::GetLastErrorAsString().c_str()
+		);
 	}
 
 	hRet = ExecuteCode::CreateRemoteThread_LoadLibrary(hProcess, MemAddr.get());
 
-	return hRet;
+	return SUCCEEDED(hRet);
 }
 
 HRESULT Injector::WriteProcessMemory_APCInjector(
@@ -56,6 +63,7 @@ HRESULT Injector::WriteProcessMemory_APCInjector(
 	const std::string& dllPath
 )
 {
+	BOOL    bRet;
 	HRESULT hRet;
 	RAII::VirtualAllocExWrapper MemAddr;
 
@@ -64,7 +72,10 @@ HRESULT Injector::WriteProcessMemory_APCInjector(
 	};
 
 	if (!hProcess.get()) {
-		printf("OpenProcess: %s\n", Util::GetLastErrorAsString().c_str());
+		printf(
+			"OpenProcess: %s\n",
+			Util::GetLastErrorAsString().c_str()
+		);
 		return E_FAIL;
 	}
 
@@ -74,7 +85,7 @@ HRESULT Injector::WriteProcessMemory_APCInjector(
 		return E_FAIL;
 	}
 
-	hRet = ::WriteProcessMemory(
+	bRet = ::WriteProcessMemory(
 		hProcess.get(),
 		MemAddr.get(),
 		dllPath.c_str(),
@@ -82,11 +93,15 @@ HRESULT Injector::WriteProcessMemory_APCInjector(
 		NULL
 	);
 
-	if (!hRet) {
-		printf("WriteProcessMemory: %s\n", Util::GetLastErrorAsString().c_str());
+	if (!bRet) {
+		printf(
+			"WriteProcessMemory: %s\n",
+			Util::GetLastErrorAsString().c_str()
+		);
 	}
 
 	hRet = ExecuteCode::APC_Injection(hProcess, MemAddr.get());
 
-	return hRet;
+	return SUCCEEDED(hRet);
+}
 }
