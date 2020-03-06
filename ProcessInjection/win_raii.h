@@ -38,11 +38,11 @@ namespace RAII {
 		{
 		}
 
-		VirtualAllocExWrapper(HANDLE hProcess, size_t size)
+		VirtualAllocExWrapper(HANDLE _hProcess, size_t size)
 			: hProcess(NULL)
 			, error(false)
 		{
-			this->reset(hProcess, size);
+			this->reset(_hProcess, size);
 		}
 
 		~VirtualAllocExWrapper()
@@ -60,35 +60,39 @@ namespace RAII {
 			this->hProcess = NULL;
 		}
 
-		void reset(HANDLE hProcess, size_t size)
+		void reset(HANDLE _hProcess, size_t size)
 		{
-			this->free();
+			if (_hProcess && size) {
 
-			this->hProcess = hProcess;
-			this->addr = ::VirtualAllocEx(
-				this->hProcess,
-				NULL,
-				size,
-				MEM_RESERVE | MEM_COMMIT,
-				PAGE_READWRITE
-			);
-
-			if (!this->addr) {
-				// TODO: circular dependency bug
-				//printf("VirtualAllocEx: %s\n", Util::GetLastErrorAsString().c_str());
 				this->free();
-				this->error = true;
+
+				this->hProcess = _hProcess;
+				this->addr = ::VirtualAllocEx(
+					this->hProcess,
+					NULL,
+					size,
+					MEM_RESERVE | MEM_COMMIT,
+					PAGE_READWRITE
+				);
+
+				if (!this->addr) {
+					// TODO: circular dependency bug
+					//printf("VirtualAllocEx: %s\n", Util::GetLastErrorAsString().c_str());
+					this->free();
+					this->error = true;
+				}
 			}
 		}
 
 		void reset(VirtualAllocExWrapper& inst)
 		{
-			this->free();
-			
-			this->hProcess = inst.hProcess;
-			this->addr     = inst.addr;
-			inst.hProcess  = 0;
-			inst.addr      = 0;
+			if (inst.hProcess && inst.addr) {
+				this->free();
+				this->hProcess = inst.hProcess;
+				this->addr = inst.addr;
+				inst.hProcess = 0;
+				inst.addr = 0;
+			}
 		}
 
 		LPVOID get()
