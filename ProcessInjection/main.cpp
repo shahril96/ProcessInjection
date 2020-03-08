@@ -10,9 +10,9 @@
 
 int main(int argc, char* argv[])
 {
-	DWORD pid;
-	LPCSTR dllPath;
-	HRESULT ret;
+	DWORD   pid = NULL;
+	LPCSTR  dll;
+	HRESULT hRet;
 
 	// to determine bitness
 	BOOL currProcess;
@@ -20,26 +20,32 @@ int main(int argc, char* argv[])
 
 	if (argc != 3) {
 		printf("\n");
-		printf("%s <pid> <dll-path>", argv[0]);
+		printf("%s <process-name> <dll-path>", argv[0]);
 		printf("\n");
 		return EXIT_FAILURE;
 	}
 
-	sscanf_s(argv[1], "%u", &pid);
-	dllPath = argv[2];
+	dll = argv[2];
+	pid = Util::findWithProcessName(Util::ToUtf16(argv[1]).c_str());
+
+	if (FAILED(pid)) {
+		printf("\nFailed to find process id for '%s'\n", argv[1]);
+		return EXIT_FAILURE;
+	}
 
 	Util::isProcessNative(::GetCurrentProcessId(), &currProcess);
 	Util::isProcessNative(pid, &targProcess);
 
 	if (currProcess != targProcess) {
-		printf("This injector bitness is incompatible with target process.\n");
+		printf("\nThis injector bitness is incompatible with target process\n");
 		return EXIT_FAILURE;
 	}
 
-	ret = Injector::WriteProcessMemory_SuspendThreadResume(pid, dllPath);
+	//hRet = Injector::WriteProcessMemory_CreateRemoteThread(pid, dll);
+	hRet = Injector::WriteProcessMemory_SuspendThreadResume(pid, dll);
 
-	if (ret != S_OK) {
-		printf("DLL Injection failed!\n");
+	if (hRet != S_OK) {
+		printf("\nDLL Injection failed!\n");
 		return EXIT_FAILURE;
 	}
 

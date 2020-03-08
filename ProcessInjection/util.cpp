@@ -81,6 +81,58 @@ void Util::hexDump(LPCVOID data, size_t size, DWORD address)
     }
 }
 
+DWORD Util::findWithProcessName(LPCWSTR name)
+{
+    BOOL                  bRet;
+    HRESULT               hRet;
+    DWORD                 byteReads;
+    DWORD                 pid         = E_FAIL;
+    std::wstring          NameWide    = name;
+    std::vector<DWORD>    ProcessesPID(1024);
+    Util::ModuleInfoList  ModuleInfoList;
+
+    bRet = EnumProcesses(
+        &ProcessesPID[0],
+        ProcessesPID.size() * sizeof ProcessesPID,
+        &byteReads
+    );
+
+    if (!bRet) {
+        printf(
+            "EnumProcesses: %s\n",
+            Util::getLastErrorAsString().c_str()
+        );
+        return pid;
+    }
+
+    // re-adjust to real size
+    ProcessesPID.resize(byteReads / sizeof(DWORD));
+
+    for (const DWORD ProcessID: ProcessesPID)
+    {
+        RAII::HandlePtr hProcess{
+            ::OpenProcess(
+                PROCESS_ALL_ACCESS,
+                FALSE,
+                ProcessID
+            )
+        };
+
+        if (!hProcess.get()) continue;
+
+        hRet = Util::enumModuleInfo(hProcess.get(), &ModuleInfoList);
+
+        if (FAILED(hRet)) continue;
+
+        if (ModuleInfoList.find(NameWide) != ModuleInfoList.end()) {
+            pid = GetProcessId(hProcess.get());
+            break;
+        }
+    }
+
+    return pid;
+}
+
 void printPageInfo(
     const PMEMORY_BASIC_INFORMATION info,
     LPCVOID addr)
@@ -156,57 +208,118 @@ void printPageInfo(
     printf("\n");
 }
 
-HRESULT Util::getAllModuleInfo(
-    const RAII::HandlePtr& hProcess,
-    std::vector<MODULEINFO>& ModuleInfoList
+HRESULT Util::enumModuleInfo(
+    const HANDLE hProcess,
+    Util::ModuleInfoList* ModuleInfoList
 )
 {
     BOOL         bRet;
+    DWORD        dRet;
     DWORD        nModule;
-    HMODULE      hModuleArr[1024] = { 0 };
-    MODULEINFO   ModeInfo = { 0 };
+    MODULEINFO   ModeInfo;
+
+    std::vector<HMODULE> hModuleList(1024, '\0');
 
     bRet = ::EnumProcessModules(
-        hProcess.get(),
-        hModuleArr,
-        sizeof hModuleArr,
+        hProcess,
+        &hModuleList[0],
+        hModuleList.size() * sizeof hModuleList[0],
         &nModule
     );
 
-    if (!bRet) {
+    if (!bRet) return E_FAIL;
+
+    // re-adjust true size of module list
+    hModuleList.resize(nModule / sizeof(HMODULE));
+
+    for (const HMODULE Module : hModuleList)
+    {
+        ::ZeroMemory((LPVOID)&ModeInfo, sizeof ModeInfo);
+
+        std::wstring ModuleName(MAX_PATH, L'\0');
+
+        dRet = GetModuleBaseName(
+            hProcess, 
+            Module, 
+            &ModuleName[0], 
+            ModuleName.size() * sizeof(ModuleName[0])
+        );
+
+        if (!dRet) continue;
+
+        // resize to true string size
+        ModuleName.resize(dRet);
+
+        bRet = ::GetModuleInformation(
+            hProcess,
+            Module,
+            &ModeInfo,
+            sizeof ModeInfo
+        );
+
+        if (!bRet) continue;
+
+        ModuleInfoList->insert({ ModuleName, ModeInfo });
+    }
+
+    return 1 - (HRESULT)(ModuleInfoList->size() > 0);
+}
+
+HRESULT Util::getThreadStartAddress(DWORD tid, PVOID* addr)
+{
+    DWORD dRet;
+
+    auto __NtQueryInformationThread = (_NtQueryInformationProcess)GetProcAddress(
+        GetModuleHandle(L"ntdll.dll"),
+        "NtQueryInformationThread"
+    );
+
+    if (!__NtQueryInformationThread) {
         printf(
-            "EnumProcessModules: %s\n",
+            "GetProcAddress: %s\n",
             Util::getLastErrorAsString().c_str()
         );
         return E_FAIL;
     }
 
-    for (size_t i = 0; i < nModule / sizeof HMODULE; i++) {
+    RAII::HandlePtr hThread{
+        ::OpenThread(
+            THREAD_ALL_ACCESS,
+            NULL,
+            tid
+        )
+    };
 
-        bRet = ::GetModuleInformation(
-            hProcess.get(),
-            hModuleArr[i],
-            &ModeInfo,
-            sizeof ModeInfo
+    if (!hThread.get()) {
+        printf(
+            "OpenThread: %s\n",
+            Util::getLastErrorAsString().c_str()
         );
+        return E_FAIL;
+    }
 
-        if (!bRet) {
-            printf(
-                "EnumProcessModules: %s\n",
-                Util::getLastErrorAsString().c_str()
-            );
-            return E_FAIL;
-        }
+    dRet = __NtQueryInformationThread(
+        hThread.get(),
+        ThreadQuerySetWin32StartAddress,
+        addr,
+        sizeof(addr),
+        NULL
+    );
 
-        ModuleInfoList.push_back(ModeInfo);
+    if (FAILED(dRet)) {
+        printf(
+            "NtQueryInformationProcess: %s\n",
+            Util::getLastErrorAsString().c_str()
+        );
+        return E_FAIL;
     }
 
     return S_OK;
 }
 
-HRESULT Util::findPage(
-    const RAII::HandlePtr& hProcess,
-    std::vector<MEMORY_BASIC_INFORMATION>& MemoryInfoList,
+HRESULT Util::findPageByProtection(
+    const HANDLE hProcess,
+    std::vector<MEMORY_BASIC_INFORMATION>* MemoryInfoList,
     DWORD Protection
 )
 {
@@ -214,15 +327,14 @@ HRESULT Util::findPage(
     size_t  sRet;
     HRESULT hRet;
     
-    MEMORY_BASIC_INFORMATION  MemoryInfo = { 0 };
-    std::vector<BYTE>         Buffer;
-    std::vector<MODULEINFO>   ModuleInfoList;
+    MEMORY_BASIC_INFORMATION  MemoryInfo;
+    Util::ModuleInfoList      ModuleInfoList;
 
     PIMAGE_DOS_HEADER         dosHeader;
     PIMAGE_NT_HEADERS         ntHeader;
     PIMAGE_SECTION_HEADER     sectionList;
 
-    hRet = Util::getAllModuleInfo(hProcess, ModuleInfoList);
+    hRet = Util::enumModuleInfo(hProcess, &ModuleInfoList);
 
     if (FAILED(hRet)) {
         printf("Failed to fetch foreign process module info\n");
@@ -230,11 +342,13 @@ HRESULT Util::findPage(
     }
 
     // enumerate every modules
-    for (const MODULEINFO& ModuleInfo : ModuleInfoList)
+    for (const auto& [ModuleName, ModuleInfo] : ModuleInfoList)
     {
+        ::ZeroMemory((LPVOID)&MemoryInfo, sizeof MemoryInfo);
+
         // get size of PE header memory page
         sRet = ::VirtualQueryEx(
-            hProcess.get(),
+            hProcess,
             ModuleInfo.lpBaseOfDll,
             &MemoryInfo,
             sizeof(MemoryInfo)
@@ -244,25 +358,24 @@ HRESULT Util::findPage(
             continue;
         }
 
-        // reset buffer with page size
+        // allocate buffer with page size
+        std::vector<BYTE> Buffer;
         Buffer.resize(MemoryInfo.RegionSize);
 
         // read the whole page that contains PE header
         bRet = ::ReadProcessMemory(
-            hProcess.get(),
+            hProcess,
             ModuleInfo.lpBaseOfDll,
             &Buffer[0],
             MemoryInfo.RegionSize,
             NULL
         );
 
-        if (!bRet) {
-            continue;
-        }
+        if (!bRet) continue;
 
         dosHeader = (PIMAGE_DOS_HEADER)&Buffer[0];
         ntHeader = (PIMAGE_NT_HEADERS)(&Buffer[0] + dosHeader->e_lfanew);
-        sectionList = (PIMAGE_SECTION_HEADER)((PBYTE)ntHeader + sizeof IMAGE_NT_HEADERS);
+        sectionList = (PIMAGE_SECTION_HEADER)((PBYTE)ntHeader + sizeof(IMAGE_NT_HEADERS));
 
         // check for "PE" signature
         if (ntHeader->Signature != 0x00004550) {
@@ -276,35 +389,30 @@ HRESULT Util::findPage(
             sectionList[i].VirtualAddress != NULL;  // if this empty, we've reached end
             i++)
         {
-            /*printf("\n");
-            printf("module addr : %p\n", sectionList[i].VirtualAddress);
-            printf("section name : %s\n", sectionList[i].Name);
-            printf("size of raw data: 0x%x\n", sectionList[i].SizeOfRawData);*/
-
-            LPBYTE SectionVA = (LPBYTE)ModuleInfo.lpBaseOfDll + sectionList[i].VirtualAddress;
+            PBYTE SectionVA = (PBYTE)ModuleInfo.lpBaseOfDll + sectionList[i].VirtualAddress;
 
             // enumerate every memory pages in section
             for (
-                LPBYTE p = SectionVA;
+                PBYTE p = SectionVA;
                 p < SectionVA + sectionList[i].SizeOfRawData && // until end-of-page
-                ::VirtualQueryEx(hProcess.get(), p, &MemoryInfo, sizeof(MemoryInfo)) == sizeof(MemoryInfo);
+                ::VirtualQueryEx(hProcess, p, &MemoryInfo, sizeof(MemoryInfo)) == sizeof(MemoryInfo);
                 p += MemoryInfo.RegionSize
                 )
             {
                 // if page's protection match our `Protection` param
                 if (MemoryInfo.Protect & Protection) {
-                    MemoryInfoList.push_back(MemoryInfo);
+                    MemoryInfoList->push_back(MemoryInfo);
                 }
             }
         }
     }
 
-    return S_OK;
+    return 1 - (HRESULT)(MemoryInfoList->size() > 0);
 }
 
 HRESULT Util::findInstruction(
-    const RAII::HandlePtr& hProcess,
-    std::vector<LPVOID>& GadgetList,
+    const HANDLE hProcess,
+    std::vector<LPVOID>* GadgetList,
     LPCSTR Pattern
 )
 {
@@ -312,11 +420,11 @@ HRESULT Util::findInstruction(
     PBYTE   pRet;
     HRESULT hRet;
 
-    std::vector<MEMORY_BASIC_INFORMATION> MemoryInfoList;
+    std::vector<MEMORY_BASIC_INFORMATION> ExecutableMemoryList;
     
-    hRet = Util::findPage(
+    hRet = Util::findPageByProtection(
         hProcess,
-        MemoryInfoList,
+        &ExecutableMemoryList,
         PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY
     );
 
@@ -325,15 +433,15 @@ HRESULT Util::findInstruction(
         return E_FAIL;
     }
 
-    for (const MEMORY_BASIC_INFORMATION& MemoryInfo : MemoryInfoList)
+    for (const MEMORY_BASIC_INFORMATION& MemoryInfo : ExecutableMemoryList)
     {
         std::vector<BYTE> PageData(MemoryInfo.RegionSize, 0x0);
 
         bRet = ::ReadProcessMemory(
-            hProcess.get(),
+            hProcess,
             MemoryInfo.BaseAddress,
             &PageData[0],
-            PageData.size(),
+            PageData.size() * sizeof PageData[0],
             NULL
         );
 
@@ -345,19 +453,18 @@ HRESULT Util::findInstruction(
             continue;
         }
 
-        // search ROP gadget
         pRet = Util::findPattern(
             (PBYTE)&PageData[0],
-            (PBYTE)&PageData[0] + PageData.size(),
+            (PBYTE)&PageData[0] + (PageData.size() * sizeof PageData[0]),
             Pattern
         );
 
         if (!pRet) continue;
 
-        GadgetList.push_back((PBYTE)MemoryInfo.BaseAddress + (pRet - &PageData[0]));
+        GadgetList->push_back((PBYTE)MemoryInfo.BaseAddress + (pRet - &PageData[0]));
     }
 
-    return GadgetList.size() > 0;
+    return 1 - (HRESULT)(GadgetList->size() > 0);
 }
 
 HRESULT Util::isProcessNative(DWORD pid, PBOOL result)
@@ -387,10 +494,10 @@ HRESULT Util::isProcessNative(DWORD pid, PBOOL result)
     return S_OK;
 }
 
-HRESULT Util::enumProcessThreads(DWORD pid, std::vector<DWORD>& ThreadIDs)
+HRESULT Util::enumProcessThreads(DWORD pid, std::vector<DWORD>* ThreadIDs)
 {
     BOOL          bRet;
-    THREADENTRY32 ThreadEntry;
+    THREADENTRY32 ThreadEntry = { 0 };
 
      RAII::HandlePtr hSnap{
          ::CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0)
@@ -407,7 +514,7 @@ HRESULT Util::enumProcessThreads(DWORD pid, std::vector<DWORD>& ThreadIDs)
         )
     {
         if (ThreadEntry.th32OwnerProcessID == pid) {
-            ThreadIDs.push_back(ThreadEntry.th32ThreadID);
+            ThreadIDs->push_back(ThreadEntry.th32ThreadID);
         }
     }
 
@@ -424,7 +531,7 @@ HRESULT Util::enumProcessThreads(DWORD pid, std::vector<DWORD>& ThreadIDs)
 // https://modexp.wordpress.com/2019/08/27/process-injection-apc/
 //
 
-DWORD Util::findAlertableThread(const RAII::HandlePtr& hProcess)
+DWORD Util::findAlertableThread(const HANDLE hProcess)
 {
     BOOL   bRet;
     DWORD  tid;
@@ -447,8 +554,8 @@ DWORD Util::findAlertableThread(const RAII::HandlePtr& hProcess)
     );
 
     Util::enumProcessThreads(
-        ::GetProcessId(hProcess.get()),
-        ThreadIDs
+        ::GetProcessId(hProcess),
+        &ThreadIDs
     );
 
     for (size_t i = 0; i < ThreadIDs.size(); i++) {
@@ -476,7 +583,7 @@ DWORD Util::findAlertableThread(const RAII::HandlePtr& hProcess)
         bRet = ::DuplicateHandle(
             ::GetCurrentProcess(),   // source process
             hEvent,                  // source event to duplicate
-            hProcess.get(),          // target process
+            hProcess,                // target process
             &TargetHandle,           // target handle
             0,
             false,
@@ -570,4 +677,24 @@ PBYTE Util::findPattern(
         }
     }
     return NULL;
+}
+
+// Convert a wide Unicode string to an UTF8 string
+std::string Util::ToUtf8(const std::wstring& wstr)
+{
+    if (wstr.empty()) return std::string();
+    int size_needed = WideCharToMultiByte(CP_UTF8, 0, &wstr[0], (int)wstr.size(), NULL, 0, NULL, NULL);
+    std::string strTo(size_needed, 0);
+    WideCharToMultiByte(CP_UTF8, 0, &wstr[0], (int)wstr.size(), &strTo[0], size_needed, NULL, NULL);
+    return strTo;
+}
+
+// Convert an UTF8 string to a wide Unicode String
+std::wstring Util::ToUtf16(const std::string& str)
+{
+    if (str.empty()) return std::wstring();
+    int size_needed = MultiByteToWideChar(CP_UTF8, 0, &str[0], (int)str.size(), NULL, 0);
+    std::wstring wstrTo(size_needed, 0);
+    MultiByteToWideChar(CP_UTF8, 0, &str[0], (int)str.size(), &wstrTo[0], size_needed);
+    return wstrTo;
 }

@@ -74,11 +74,11 @@ HRESULT ExecuteCode::APC_Injection(
 	}
 
 	// Find if they are any alertable thread in the process
-	AlertableTid = Util::findAlertableThread(hProcess);
+	AlertableTid = Util::findAlertableThread(hProcess.get());
 
 	if (!AlertableTid) {
 		printf(
-			"Failed to find any alertable thread in PID [%d]\n", 
+			"Failed to find any alertable thread in PID [0x%x]\n", 
 			::GetProcessId(hProcess.get())
 		);
 		return E_FAIL;
@@ -126,7 +126,7 @@ HRESULT ExecuteCode::SuspendThreadResume(
 
 	Util::enumProcessThreads(
 		::GetProcessId(hProcess.get()),
-		ThreadIDs
+		&ThreadIDs
 	);
 
 	if (ThreadIDs.empty()) {
