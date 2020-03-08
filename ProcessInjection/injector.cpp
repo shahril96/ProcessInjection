@@ -110,19 +110,16 @@ HRESULT Injector::WriteProcessMemory_SuspendThreadResume(
 	const std::string& dllPath
 )
 {
-	HRESULT hRet;
-	BOOL    bRet;
-	DWORD   dRet;
-	BOOL    ExitSignal = FALSE;
-	
+	HRESULT			     hRet;
+	BOOL				 bRet;
+	DWORD				 dRet;
+	BOOL				 ExitSignal;
 	std::vector<DWORD>   ThreadID;
 	CONTEXT				 ctx;
 	CONTEXT				 OriginalContext;
 	Util::ModuleInfoList ModuleInfoList;
-
-	std::wstring				TargetBaseName(MAX_PATH, L'\0');
+	std::wstring		 TargetBaseName(MAX_PATH, L'\0');
 	
-
 	RAII::HandlePtr hProcess{
 		::OpenProcess(PROCESS_ALL_ACCESS, FALSE, pid)
 	};
@@ -150,9 +147,9 @@ HRESULT Injector::WriteProcessMemory_SuspendThreadResume(
 
 	//
 	// TODO: when injector exit, OS automatically calls VirtualFreeEx()
-	//       decommitting page and zeroing all the data in the page.
+	//       decommitting page and zeroing all the data target memory space
 	//
-	//       find a way to prevent OS from zeroing the area.
+	//       NOTE: find a way to prevent OS from zeroing the area
 	//
 
 	if (ShellcodeBuf.isError()) {
@@ -164,16 +161,18 @@ HRESULT Injector::WriteProcessMemory_SuspendThreadResume(
 
 #ifdef _WIN64
 
-
 	// TODO: validate shellcode correctness
-	BYTE shellcode[] = {
+	BYTE shellcode[0x1024] = {
 		0x48, 0xB9, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,		// movabs rcx, <dll-path>
 		0x48, 0xB8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,		// movabs rax, <loadlibrarya>
 		0xFF, 0xD0,														// call rax
 		0xEB, 0xFE														// self-loop
 	};
 
-	*(PVOID*)(shellcode +  2) = (PVOID) dllPathMem.get(); // dll path
+	// copy dll path into our shellcode
+	memcpy(shellcode + 24, dllPath.c_str(), dllPath.size());
+
+	*(PVOID*)(shellcode +  2) = (PVOID)((PBYTE)ShellcodeBuf.get() + 24); // dll path
 	*(PVOID*)(shellcode + 12) = (PVOID) GetProcAddress(  // Kernel32.dll!LoadLibraryA
 		GetModuleHandle(L"Kernel32.dll"),
 		"LoadLibraryA"
@@ -225,7 +224,7 @@ HRESULT Injector::WriteProcessMemory_SuspendThreadResume(
 	// might crash if we try to "disturb" its thread context
 	//
 
-	hRet = Util::enumModuleInfo(hProcess.get(), &ModuleInfoList);
+	/*hRet = Util::enumModuleInfo(hProcess.get(), &ModuleInfoList);
 
 	if (FAILED(hRet) || ModuleInfoList.empty()) {
 		printf("Failed to enumerate target process module info\n");
@@ -264,13 +263,15 @@ HRESULT Injector::WriteProcessMemory_SuspendThreadResume(
 
 			return true;
 		})
-	);
+	);*/
+
+	printf("\nFound %d thread(s)\n\n", ThreadID.size());
 
 	for (const DWORD tid : ThreadID)
 	{
 		ZeroMemory(&ctx, sizeof ctx);
+		ExitSignal = FALSE;
 
-		// jgn lupa, tid! bukan pid bodo
 		RAII::HandlePtr hThread{
 			::OpenThread(
 				THREAD_SET_CONTEXT | THREAD_GET_CONTEXT | THREAD_SUSPEND_RESUME,
@@ -303,38 +304,60 @@ HRESULT Injector::WriteProcessMemory_SuspendThreadResume(
 		dRet = ::ResumeThread(hThread.get());
 		if (FAILED(dRet)) continue;
 
-		//
-		// TODO: if lower, then target process will crash
-		// because suddenly the shellcode area is suddenly emptied...
-		// might possible that virtualFree() completely wipe the area
-		//
-		// NOTE: find a way to replace this hack
-		//
-		Sleep(100);
+		DWORD total_sleep = 0;
+		DWORD counter = 1;
 
-		dRet = ::SuspendThread(hThread.get());
-		if (FAILED(dRet)) continue;
+		// control 
+		const DWORD SLEEP_TIME_PER_WAIT = 500;
+		const DWORD SLEEP_TOTAL_LIMIT   = 3000;
 
-		ctx.ContextFlags = CONTEXT_ALL;
-		bRet = ::GetThreadContext(hThread.get(), &ctx);
-		if (!bRet) continue;
+		do {
+
+			Sleep(SLEEP_TIME_PER_WAIT);
+
+			dRet = ::SuspendThread(hThread.get());
+			if (FAILED(dRet)) break;
+
+			ctx.ContextFlags = CONTEXT_ALL;
+			bRet = ::GetThreadContext(hThread.get(), &ctx);
+			if (!bRet) break;
+
+
+			printf(
+				"\rThread 0x%05x [Trial: %d/%d] - IP: %p",
+				tid,
+				counter,
+				SLEEP_TOTAL_LIMIT / SLEEP_TIME_PER_WAIT,
+#ifdef _WIN64
+				ctx.Rip
+#else
+				ctx.Eip
+#endif
+			);
 
 #ifdef _WIN64
-		ExitSignal = (DWORD64)ShellcodeBuf.get() + sizeof(shellcode) - 2 == ctx.Rip;
+			ExitSignal = (DWORD64)ShellcodeBuf.get() + 22 == ctx.Rip;
 #else
-		printf("Eip = %p\n", ctx.Eip);
-		ExitSignal = (DWORD)ShellcodeBuf.get() != ctx.Eip;
+			ExitSignal = (DWORD)ShellcodeBuf.get() + 13 == ctx.Eip;
 #endif
+			dRet = ::ResumeThread(hThread.get());
+			if (FAILED(dRet)) break;
 
+			total_sleep += SLEEP_TIME_PER_WAIT;
+			counter++;
+
+		} while (!ExitSignal && total_sleep < SLEEP_TOTAL_LIMIT);
+
+		printf("\n");
+
+		// set original context back
 		bRet = ::SetThreadContext(hThread.get(), &OriginalContext);
 		if (!bRet) continue;
-
-		dRet = ::ResumeThread(hThread.get());
-		if (FAILED(dRet)) continue;
 
 		if (ExitSignal) {
 			printf("\n");
 			printf("Gained code execution with thread [0x%x]\n", tid);
+			printf("\n");
 			break;
 		}
 	}
