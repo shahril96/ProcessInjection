@@ -322,7 +322,6 @@ HRESULT Injector::WriteProcessMemory_SuspendThreadResume(
 			bRet = ::GetThreadContext(hThread.get(), &ctx);
 			if (!bRet) break;
 
-
 			printf(
 				"\rThread 0x%05x [Trial: %d/%d] - IP: %p",
 				tid,
@@ -340,6 +339,17 @@ HRESULT Injector::WriteProcessMemory_SuspendThreadResume(
 #else
 			ExitSignal = (DWORD)ShellcodeBuf.get() + 13 == ctx.Eip;
 #endif
+			
+			//
+			// All done!
+			// set original context back
+			//
+
+			if (ExitSignal) {
+				bRet = ::SetThreadContext(hThread.get(), &OriginalContext);
+				if (!bRet) break;
+			}
+
 			dRet = ::ResumeThread(hThread.get());
 			if (FAILED(dRet)) break;
 
@@ -349,10 +359,6 @@ HRESULT Injector::WriteProcessMemory_SuspendThreadResume(
 		} while (!ExitSignal && total_sleep < SLEEP_TOTAL_LIMIT);
 
 		printf("\n");
-
-		// set original context back
-		bRet = ::SetThreadContext(hThread.get(), &OriginalContext);
-		if (!bRet) continue;
 
 		if (ExitSignal) {
 			printf("\n");
