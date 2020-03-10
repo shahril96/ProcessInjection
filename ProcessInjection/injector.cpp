@@ -323,19 +323,25 @@ HRESULT Injector::WriteProcessMemory_SuspendThreadResume(
 		RAII::SuspendThread suspend_thread(hThread.get());
 		if (suspend_thread.m_error) continue;
 
-		ctx.ContextFlags = CONTEXT_ALL;
-		bRet = ::GetThreadContext(hThread.get(), &ctx);
-
-		if (!bRet) continue;
+		suspend_thread.get_context(&ctx);
 
 		OriginalContext = ctx;
 
 #ifdef _WIN64
-		ctx.Rip = (DWORD64)PushSpRet;
-		ctx.Rsp -= sizeof(PVOID);       // allocate area for ROP gadget
+		PVOID OriginalIP = (PVOID)ctx.Rip;
+		ctx.Rip          = (DWORD64)PushSpRet;
+		ctx.Rsp         -= sizeof(PVOID);       // allocate area for ROP gadget
 #else
-		ctx.Eip = (DWORD)PushSpRet;
-		ctx.Esp -= sizeof(PVOID);       // allocate area for ROP gadget
+		PVOID OriginalIP = (PVOID) ctx.Eip;
+		ctx.Eip          = (DWORD)PushSpRet;
+		ctx.Esp         -= sizeof(PVOID);       // allocate area for ROP gadget
+		
+		if (Util::getModuleFromAddress(hProcess.get(), (PVOID) ctx.Eip) == "ntdll.dll")
+		{
+			printf("Thread (0x%05x) is currently in Ntdll. Skipping.\n", tid);
+			continue;
+		}
+
 #endif
 
 		//
@@ -406,6 +412,12 @@ HRESULT Injector::WriteProcessMemory_SuspendThreadResume(
 		const DWORD SLEEP_TIME_PER_WAIT = 1000;
 		const DWORD SLEEP_TOTAL_LIMIT   = 3000;
 
+		printf("Thread 0x%05x:\n", tid);
+		printf("  -> Original IP : %p | %s\n",
+			OriginalIP,
+			Util::getSymbolFromAddress(hProcess.get(), OriginalIP).c_str()
+		);
+
 		do {
 
 			Sleep(SLEEP_TIME_PER_WAIT);
@@ -421,17 +433,16 @@ HRESULT Injector::WriteProcessMemory_SuspendThreadResume(
 			//suspend_thread.resume();
 
 			printf(
-				"\rThread 0x%05x [Trial: %d/%d] - IP: %p | %s",
-				tid,
-				counter,
-				SLEEP_TOTAL_LIMIT / SLEEP_TIME_PER_WAIT,
+				"\r  -> Original IP : %p | %-20s (%d/%d)",
 #ifdef _WIN64
 				(PVOID) ctx.Rip,
-				Util::GetSymbolFromAddr(hProcess.get(), (PVOID)ctx.Rip).c_str()
+				Util::GetSymbolFromAddr(hProcess.get(), (PVOID)ctx.Rip).c_str(),
 #else
 				(PVOID)ctx.Eip,
-				Util::getSymbolFromAddress(hProcess.get(), (PVOID)ctx.Eip).c_str()
+				Util::getSymbolFromAddress(hProcess.get(), (PVOID)ctx.Eip).c_str(),
 #endif
+				counter,
+				SLEEP_TOTAL_LIMIT / SLEEP_TIME_PER_WAIT
 			);
 
 #ifdef _WIN64
@@ -445,30 +456,28 @@ HRESULT Injector::WriteProcessMemory_SuspendThreadResume(
 
 			if (IpMoved)
 			{
+				printf("\n\n");
+				printf("Instruction pointer in thread (0x%x) moved\n", tid);
+				printf("There is something that is blocking our decoy thread\n");
+				printf("Chance to succeed or crashed is equal\n");
 				printf("\n");
-				printf("\n");
-				printf("Instruction pointer in thread [0x%x] moved\n", tid);
-				printf("DllMain is currently blocking the hijacked thread\n");
-				printf("\n");
-				printf("Wait or finish up the DllMain execution\n");
-				printf("Then press any button to restore thread context\n");
-				printf("\n");
-				printf("Don't continue if DllMain is not finished, or else crash will happen\n");
-				printf("\n");
-
-				// block current thread execution
-				_getch();
 
 				break;
 			}
 
 		} while (!ExitSignal && total_sleep < SLEEP_TOTAL_LIMIT);
 
-		printf("\n");
+		printf("\n\n");
+
+		//
+		// replace with ROP gadget that returns to main execution
+		//
+		RAII::SuspendThread clean_context(hThread.get());
+		clean_context.set_context(&OriginalContext);
+		clean_context.resume();
 
 		if (ExitSignal || IpMoved) {
-			printf("\n");
-			printf("Gained code execution with thread [0x%x]\n", tid);
+			printf("Gained code execution within thread [0x%x]\n", tid);
 			printf("\n");
 			break;
 		}

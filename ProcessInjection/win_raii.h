@@ -60,7 +60,9 @@ namespace RAII {
 
 		void resume()
 		{
-			m_error = ::ResumeThread(m_hThread) == -1;
+			if (!m_error) {
+				m_error = ::ResumeThread(m_hThread) == -1;
+			}
 		}
 	};
 
