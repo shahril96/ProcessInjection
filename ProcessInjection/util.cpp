@@ -5,6 +5,8 @@
 
 #include <string>
 #include <vector>
+#include <algorithm>
+#include <functional>
 
 #include "util.h"
 
@@ -234,7 +236,7 @@ HRESULT Util::enumModuleInfo(
 
     for (const HMODULE Module : hModuleList)
     {
-        ::ZeroMemory((LPVOID)&ModeInfo, sizeof ModeInfo);
+        ::ZeroMemory((PVOID)&ModeInfo, sizeof ModeInfo);
 
         std::wstring ModuleName(MAX_PATH, L'\0');
 
@@ -263,6 +265,76 @@ HRESULT Util::enumModuleInfo(
     }
 
     return 1 - (HRESULT)(ModuleInfoList->size() > 0);
+}
+
+std::string Util::getModuleFromAddress(HANDLE hProcess, PVOID addr)
+{
+    std::string ModuleNameRet = "unknown_module";
+
+    size_t                    sRet;
+    HRESULT                   hRet;
+    Util::ModuleInfoList      ModuleInfoList;
+    MEMORY_BASIC_INFORMATION  MemoryInfo;
+
+    hRet = Util::enumModuleInfo(hProcess, &ModuleInfoList);
+
+    if (FAILED(hRet)) {
+        return ModuleNameRet;
+    }
+
+    // enumerate every modules
+    for (const auto& [ModuleName, ModuleInfo] : ModuleInfoList)
+    {
+        ::ZeroMemory((PVOID)&MemoryInfo, sizeof MemoryInfo);
+
+        // get size of PE header memory page
+        sRet = ::VirtualQueryEx(
+            hProcess,
+            ModuleInfo.lpBaseOfDll,
+            &MemoryInfo,
+            sizeof(MemoryInfo)
+        );
+
+        if (sRet != sizeof(MemoryInfo)) {
+            continue;
+        }
+
+        PBYTE start = (PBYTE) ModuleInfo.lpBaseOfDll;
+        PBYTE   end = start + ModuleInfo.SizeOfImage;
+
+        if (start <= addr && addr < end) {
+            ModuleNameRet = Util::ToUtf8(ModuleName);
+            break;
+        }
+    }
+
+    return std::move(ModuleNameRet);
+}
+
+std::string Util::getSymbolFromAddress(HANDLE hProcess, PVOID addr)
+{
+    DWORD64      dwDisplacement = 0;
+    PSYMBOL_INFO pSymbol;
+    
+    BYTE buffer[sizeof(SYMBOL_INFO) + MAX_SYM_NAME * sizeof(TCHAR)] = { 0 };
+
+    pSymbol               = (PSYMBOL_INFO) buffer;
+    pSymbol->SizeOfStruct = sizeof(SYMBOL_INFO);
+    pSymbol->MaxNameLen   = MAX_SYM_NAME;
+
+    // automatically release sym object for us
+    RAII::SymbolHandler sym(hProcess);
+
+    std::string ModuleName = Util::getModuleFromAddress(hProcess, addr);
+
+    if (!::SymFromAddr(hProcess, (DWORD64) addr, &dwDisplacement, pSymbol))
+    {
+        return ModuleName;
+    }
+
+    std::string Sym(pSymbol->Name, pSymbol->Name + pSymbol->MaxNameLen);
+
+    return ModuleName + "!" + Sym;
 }
 
 HRESULT Util::getThreadStartAddress(DWORD tid, PVOID* addr)
@@ -344,7 +416,7 @@ HRESULT Util::findPageByProtection(
     // enumerate every modules
     for (const auto& [ModuleName, ModuleInfo] : ModuleInfoList)
     {
-        ::ZeroMemory((LPVOID)&MemoryInfo, sizeof MemoryInfo);
+        ::ZeroMemory((PVOID)&MemoryInfo, sizeof MemoryInfo);
 
         // get size of PE header memory page
         sRet = ::VirtualQueryEx(
@@ -410,22 +482,24 @@ HRESULT Util::findPageByProtection(
     return 1 - (HRESULT)(MemoryInfoList->size() > 0);
 }
 
-HRESULT Util::findInstruction(
+HRESULT Util::findPatternTargetMemory(
     const HANDLE hProcess,
-    std::vector<LPVOID>* GadgetList,
-    LPCSTR Pattern
+    std::vector<PVOID>* PatternList,
+    const std::string& Pattern,
+    DWORD Protection,
+    DWORD LimitList
 )
 {
-    BOOL    bRet;
-    PBYTE   pRet;
-    HRESULT hRet;
+    BOOL     bRet;
+    size_t   dist;
+    HRESULT  hRet;
 
     std::vector<MEMORY_BASIC_INFORMATION> ExecutableMemoryList;
     
     hRet = Util::findPageByProtection(
         hProcess,
         &ExecutableMemoryList,
-        PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY
+        Protection
     );
 
     if (FAILED(hRet)) {
@@ -435,13 +509,13 @@ HRESULT Util::findInstruction(
 
     for (const MEMORY_BASIC_INFORMATION& MemoryInfo : ExecutableMemoryList)
     {
-        std::vector<BYTE> PageData(MemoryInfo.RegionSize, 0x0);
+        std::string PageData(MemoryInfo.RegionSize, 0x0);
 
         bRet = ::ReadProcessMemory(
             hProcess,
             MemoryInfo.BaseAddress,
             &PageData[0],
-            PageData.size() * sizeof PageData[0],
+            MemoryInfo.RegionSize,
             NULL
         );
 
@@ -453,18 +527,142 @@ HRESULT Util::findInstruction(
             continue;
         }
 
-        pRet = Util::findPattern(
-            (PBYTE)&PageData[0],
-            (PBYTE)&PageData[0] + (PageData.size() * sizeof PageData[0]),
-            Pattern
-        );
+        std::string::iterator Start = PageData.begin();
 
-        if (!pRet) continue;
+        while (PatternList->size() < LimitList)
+        {
+            // we can use performant std::boyer_moore_searcher() in c++17
+            Start = std::search(
+                Start,
+                PageData.end(),
+                //std::boyer_moore_searcher(Pattern.begin(), Pattern.end())
+                std::boyer_moore_searcher(Pattern.begin(), Pattern.end())
+            );
 
-        GadgetList->push_back((PBYTE)MemoryInfo.BaseAddress + (pRet - &PageData[0]));
+            if (Start == PageData.end()) break;
+
+            dist = std::distance(PageData.begin(), Start);
+            PatternList->push_back((PBYTE)MemoryInfo.BaseAddress + dist);
+
+            Start += Pattern.size();
+        }
     }
 
-    return 1 - (HRESULT)(GadgetList->size() > 0);
+    return 1 - (HRESULT)(PatternList->size() > 0);
+}
+
+PVOID Util::findInstruction(
+    const HANDLE hProcess,
+    OUT const std::string& Pattern
+)
+{
+    HRESULT hRet;
+    std::vector<PVOID> GadgetList;
+
+    hRet = Util::findPatternTargetMemory(
+        hProcess,
+        &GadgetList,
+        Pattern,
+        PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY,
+        1
+    );
+
+    if (FAILED(hRet) || GadgetList.empty()) return NULL;
+
+    return GadgetList[0];
+}
+
+PVOID Util::findWritableAddress(const HANDLE hProcess, size_t size, size_t Alignment)
+{
+    BOOL                        bRet;
+    PVOID                       ZeroStart;
+    DWORD                       nModule;
+    HMODULE                     hModule;
+    MODULEINFO                  ModuleInfo;
+    MEMORY_BASIC_INFORMATION    MemoryInfo;
+    std::string                 pattern(size, '\0');  // initialize all with zero
+    std::vector<PVOID>          GadgetList;
+
+    bRet = ::EnumProcessModules(
+        hProcess,
+        &hModule,
+        sizeof(hModule),
+        &nModule
+    );
+
+    if (!bRet) return NULL;
+
+    bRet = ::GetModuleInformation(
+        hProcess,
+        hModule,
+        &ModuleInfo,
+        sizeof(ModuleInfo)
+    );
+
+    if (!bRet) return NULL;
+
+    // enumerate every writable memory pages
+    for (
+        PBYTE p = (PBYTE) ModuleInfo.lpBaseOfDll;
+        ::VirtualQueryEx(hProcess, p, &MemoryInfo, sizeof(MemoryInfo)) == sizeof(MemoryInfo);
+        p += MemoryInfo.RegionSize
+        )
+    {
+        if (
+            MemoryInfo.RegionSize <= 1024 * 512             // limit to page under 512kb size
+            && MemoryInfo.Type != MEM_IMAGE                 // find page in any image
+            && MemoryInfo.Protect & PAGE_READWRITE          // must have r/w permission
+            )
+        {
+            std::string PageData(MemoryInfo.RegionSize, 0x0);
+
+            bRet = ::ReadProcessMemory(
+                hProcess,
+                MemoryInfo.BaseAddress,
+                &PageData[0],
+                MemoryInfo.RegionSize,
+                NULL
+            );
+
+            if (!bRet) continue;
+
+            ZeroStart = NULL;
+            
+
+            //
+            // do linear search for memory buffer which is empty
+            //
+
+            // ref: https://stackoverflow.com/a/7035097/1768052
+            Alignment = (std::max)(Alignment, (size_t) 1);
+
+            // split memory by Alignment block
+            for (
+                size_t Address = PageData.size() / Alignment * (Alignment - 1);
+                /**/;
+                Address -= Alignment
+                )
+            {
+                size_t i = Address;
+
+                // now search for NULL area with `size` width
+                for (
+                    /**/;
+                    i < PageData.size() && i < Address + size && PageData[i] == '\0';
+                    i++
+                    )
+                {
+                }
+
+                if (i - Address == size) {
+                    return (PBYTE)MemoryInfo.BaseAddress + Address;
+                }
+            }
+
+        }
+    }
+
+    return NULL;
 }
 
 HRESULT Util::isProcessNative(DWORD pid, PBOOL result)
@@ -539,7 +737,7 @@ DWORD Util::findAlertableThread(const HANDLE hProcess)
     DWORD  idxThread;
     HANDLE hEvent;
     HANDLE TargetHandle;
-    LPVOID SetEventProc;
+    PVOID SetEventProc;
 
     std::vector<DWORD>           ThreadIDs;
     std::vector<HANDLE>          StoreEventHandle;
@@ -548,7 +746,7 @@ DWORD Util::findAlertableThread(const HANDLE hProcess)
     // set default value to NULL
     tid = NULL;
 
-    SetEventProc = (LPVOID)::GetProcAddress(
+    SetEventProc = (PVOID)::GetProcAddress(
         GetModuleHandle(L"kernel32.dll"),
         "SetEvent"
     );

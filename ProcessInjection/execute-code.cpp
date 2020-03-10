@@ -116,7 +116,7 @@ HRESULT ExecuteCode::APC_Injection(
 
 HRESULT ExecuteCode::SuspendThreadResume(
 	const RAII::HandlePtr& hProcess,
-	LPVOID Argv
+	PVOID Argv
 )
 {
 	BOOL				bRet;

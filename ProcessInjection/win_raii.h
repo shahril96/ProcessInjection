@@ -1,13 +1,16 @@
 #pragma once
 
 #include <Windows.h>
+#include <dbghelp.h>
+
 #include <memory>
+
+#pragma comment( lib, "dbghelp.lib" )
 
 namespace RAII {
 
 	// -------------------------------------
-	// Custom deleter for Windows Handle
-	// that requiring CloseHandle() to close
+	// Custom deleters for Windows Handle
 	//
 
 	struct HandleDeleter {
@@ -20,15 +23,77 @@ namespace RAII {
 		}
 	};
 
-	// ----------------------------------------------
+	// -------------------------------------
+	// Custom class for managing resume 
+	// thread after it has been suspended
+	//
+
+	struct SuspendThread
+	{
+		BOOL    m_error;
+		HANDLE  m_hThread;
+
+		SuspendThread(const HANDLE _handle)
+			: m_error(FALSE)
+			, m_hThread(_handle)
+		{
+			m_error = ::SuspendThread(m_hThread) == -1;
+		}
+
+		~SuspendThread()
+		{
+			resume();
+		}
+
+		BOOL get_context(PCONTEXT context)
+		{
+			ZeroMemory(context, sizeof(*context));
+			context->ContextFlags = CONTEXT_ALL;
+			return ::GetThreadContext(m_hThread, context) != 0;
+		}
+
+		BOOL set_context(PCONTEXT context)
+		{
+			context->ContextFlags = CONTEXT_ALL;
+			return ::SetThreadContext(m_hThread, context) != 0;
+		}
+
+		void resume()
+		{
+			m_error = ::ResumeThread(m_hThread) == -1;
+		}
+	};
+
+	// -------------------------------------
+	// Very simple RAII wrapper class for 
+	// SymInitialize / SymCleanup
+	//
+
+	struct SymbolHandler
+	{
+		HANDLE m_hProcess;
+
+		SymbolHandler(HANDLE _handle)
+			: m_hProcess(_handle)
+		{
+			::SymInitialize(m_hProcess, NULL, TRUE);
+		}
+
+		~SymbolHandler()
+		{
+			::SymCleanup(m_hProcess);
+		}
+	};
+
+	// ------------------------------------------------
 	// Custom class to manage allocation/deallocation
-	// of memory with VirtulAllocEx
+	// of memory of foreign process
 	//
 
 	struct VirtualAllocEx
 	{
 		HANDLE hProcess;
-		LPVOID addr;
+		PVOID addr;
 		size_t size;
 		DWORD  protect;
 		DWORD  allocation_type;
@@ -210,16 +275,6 @@ namespace RAII {
 
 			printf("\n");
 
-		}
-
-		LPVOID get()
-		{
-			return this->addr;
-		}
-		
-		BOOL isError()
-		{
-			return this->error;
 		}
 	};
 

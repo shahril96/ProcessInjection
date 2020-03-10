@@ -62,7 +62,7 @@ VOID NTAPI DllNotificationCallback(
 BOOL Exit;
 
 
-DWORD WINAPI PrintDot(LPVOID lpParameter)
+DWORD WINAPI PrintDot(PVOID lpParameter)
 {
     UNREFERENCED_PARAMETER(lpParameter);
 

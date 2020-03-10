@@ -2,6 +2,7 @@
 
 #include <Windows.h>
 #include <Psapi.h>
+#include <dbghelp.h>
 
 #include <algorithm>
 #include <string>
@@ -28,6 +29,9 @@ namespace Util
         Util::ModuleInfoList* ModuleInfoList
     );
 
+    std::string getModuleFromAddress(HANDLE hProcess, PVOID addr);
+    std::string getSymbolFromAddress(HANDLE hProcess, PVOID addr);
+
     HRESULT getThreadStartAddress(DWORD tid, PVOID* addr);
 
     HRESULT findPageByProtection(
@@ -36,10 +40,23 @@ namespace Util
         DWORD Protection = NULL
     );
 
-    HRESULT findInstruction(
+    HRESULT findPatternTargetMemory(
         const HANDLE hProcess,
-        std::vector<LPVOID>* GadgetList,
-        LPCSTR Pattern
+        OUT std::vector<PVOID>* PatternList,
+        IN const std::string& Pattern,
+        DWORD Protection,
+        DWORD LimitList = 10
+    );
+
+    PVOID findInstruction(
+        const HANDLE hProcess,
+        const std::string& Pattern
+    );
+
+    PVOID findWritableAddress(
+        const HANDLE hProcess,
+        size_t size,
+        size_t Alignment = 1
     );
 
     HRESULT isProcessNative(DWORD pid, PBOOL result);
