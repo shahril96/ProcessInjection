@@ -6,8 +6,6 @@
 #include "Injector.h"
 #include "Process\Process.h"
 
-
-
 int main(int argc, char* argv[])
 {
 	DWORD   pid = NULL;
@@ -32,7 +30,7 @@ int main(int argc, char* argv[])
 	dll = argv[2];
 	pid = ProcessIterator->second.getPid();
 
-	//hRet = Injector::WriteProcessMemory_APCInjector(Process::Process(pid), dll);
+	//hRet = Injector::WriteProcessMemory_CreateRemoteThread(Process::Process(pid), dll);
 	hRet = Injector::WriteProcessMemory_SuspendThreadResume(pid, dll);
 
 	if (hRet != S_OK) {

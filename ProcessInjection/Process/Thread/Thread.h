@@ -8,7 +8,7 @@ namespace Process
     struct ThreadState
     {
         KTHREAD_STATE state;
-        KWAIT_REASON reason;
+        KWAIT_REASON wait_reason;
     };
 
     class Thread
@@ -178,7 +178,7 @@ namespace Process
             
             // fetch from this API where possibly can
             buffer = QueryInformationThread(hThread, ThreadQuerySetWin32StartAddress);
-            StartAddressQuery = *(PVOID*)&buffer[0];
+            StartAddressQuery = (PVOID) &buffer[0];
 
             if (StartAddressQuery) {
                 StartAddress = StartAddressQuery;
@@ -219,7 +219,7 @@ namespace Process
         BOOL isSuspended() noexcept
         {
             ThreadState state = getState();
-            return state.state == Waiting && state.reason == Suspended;
+            return state.state == Waiting && state.wait_reason == Suspended;
         }
 
         DWORD Suspend() noexcept

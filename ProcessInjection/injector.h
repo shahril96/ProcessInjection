@@ -4,11 +4,14 @@
 
 namespace Injector
 {
+
 	HRESULT WriteProcessMemory_CreateRemoteThread(
 		Process::Process process,
 		const std::string& dllPath
 	)
 	{
+		DWORD dwRet;
+
 		// allocate memory on target process
 		Process::RAII::allocateMemory buffer = process.allocate(dllPath.size() + 1);
 
@@ -21,13 +24,11 @@ namespace Injector
 			*buffer
 		);
 
-		//
-		// TODO: check thread state after execution
-		//
+		// wait until thread is terminated (signaled)
+		// TODO: if thread is blocking (eq; GUI), then this will be an infinite wait
+		dwRet = WaitForSingleObject(*RemoteThread, INFINITE);
 
-		//return SUCCEEDED(hRet);
-
-		return 0;
+		return dwRet == WAIT_OBJECT_0 ? S_OK : E_FAIL;
 	}
 
 	HRESULT WriteProcessMemory_APCInjector(
@@ -57,103 +58,112 @@ namespace Injector
 		const std::string& dllPath
 	)
 	{
-		DWORD               dwRet;
-		BOOL				ExitSignal = FALSE;
-		BOOL				IpMoved = FALSE;
-		std::vector<DWORD>  ThreadID;
-		CONTEXT				ctx;
-		CONTEXT				OriginalContext;
-		std::wstring		TargetBaseName(MAX_PATH, L'\0');
+		DWORD    dwRet;
+		BOOL	 ExitSignal = FALSE;
+		BOOL	 IpMoved = FALSE;
+		CONTEXT	 ctx;
+		CONTEXT	 OriginalContext;
 
-		//
-		// find writable address which is aligned with 16-bytes
-		//
-		// this is because we're imitating the stack, so we need
-		// to align to avoid problem with modern CPU instructions
-		//
-
-		PVOID WritableAddress = process.findWritableAddress(0x512, 16);
-
-		if (!WritableAddress) {
-			printf("Failed to find writable buffer to hold ROP gadget\n");
-			return E_FAIL;
-		}
-
-		//
-		// BELOW EXPERIMENT
-		//
+		// allocate memory in target process
+		Process::RAII::allocateMemory RopGadgetMemory = process.allocate(0x1000);
+		Process::RAII::allocateMemory DllPathMemory   = process.allocate(0x1000);
 
 		// general
 		PVOID PushSpRet;
 		PVOID SelfLoop;
+		PVOID PopAxRet;
+		PVOID PopCxRet;
 
 		// x86
-		PVOID PopEaxRet;
-		PVOID CallEaxRet;
+		PVOID CallAxRet;
 
 		// x64
-		PVOID PopRaxRet;
-		PVOID CallRaxRet;
+		PVOID PushRaxJmpRbx;
 
-
+		// both x86 and x64 uses the same opcodes
+		PushSpRet  = process.findInstruction("\x5C\xC3");      // pop esp; ret
+		SelfLoop   = process.findInstruction("\xEB\xFE");      // jmp short -2
+		PopAxRet   = process.findInstruction("\x58\xC3");      // pop [e|r]ax; ret
+		PopCxRet   = process.findInstruction("\x59\xC3");      // pop [e|r]cx; ret
+		
 #ifdef _WIN64
 
-		//
-		//
-		//
+		PushRaxJmpRbx = process.findInstruction("\xFF\xD0\x90\x48\x83\xC4\x28\xC3"); 
 
-#else
-
-		PushSpRet = process.findInstruction("\x5C\xC3");      // pop esp; ret
-		SelfLoop = process.findInstruction("\xEB\xFE");      // jmp short -2
-		PopEaxRet = process.findInstruction("\x58\xC3");      // pop eax; ret
-		CallEaxRet = process.findInstruction("\xFF\xD0\xC3");  // call eax; ret
-
-		if (!PushSpRet || !SelfLoop || !PopEaxRet || !CallEaxRet) {
+		if (!PushSpRet || !SelfLoop || !PopAxRet || !PopCxRet || !PushRaxJmpRbx) {
 			printf("Failed to find ROP gadgets\n");
 			return E_FAIL;
 		}
 
-#ifdef _DEBUG
+		PVOID  RopGadgets[0x512 / sizeof(PVOID)] = { 0 };
+		PVOID  LoadLibraryPtr  = Process::getFunctionAddress(L"Kernel32.dll", "LoadLibraryA");
+		PVOID  LoadLibraryLoc  = (PBYTE)*RopGadgetMemory + 7 * sizeof(PVOID);
 
-		printf("\n");
-		printf("Writable mem  -> %p\n", WritableAddress);
-		printf("\n");
-		printf("Gadget address\n");
-		printf("----------------\n");
-		printf("pop esp; ret  -> %p | %s\n", PushSpRet, process.getSymbolFromAddress(PushSpRet).c_str());
-		printf("jmp short -2  -> %p | %s\n", SelfLoop, process.getSymbolFromAddress(SelfLoop).c_str());
-		printf("pop eax; ret  -> %p | %s\n", PopEaxRet, process.getSymbolFromAddress(PopEaxRet).c_str());
-		printf("call eax; ret -> %p | %s\n", CallEaxRet, process.getSymbolFromAddress(CallEaxRet).c_str());
+		RopGadgets[0] = PopAxRet;        // pop rax; ret
+		RopGadgets[1] = LoadLibraryPtr;  //		<argv> -- LoadLibraryPtr
+		RopGadgets[2] = PopCxRet;        // pop rcx; ret
+		RopGadgets[3] = *DllPathMemory;  //		<argv> -- dll path
+		RopGadgets[4] = PushRaxJmpRbx;   // call rax; nop; add rsp, 0x28; ret; 
+		RopGadgets[5] = NULL;
+		RopGadgets[6] = NULL;
+		RopGadgets[7] = NULL;            // 5 padding for "add rsp, 0x28"
+		RopGadgets[8] = NULL;
+		RopGadgets[9] = NULL;
+		RopGadgets[10] = SelfLoop;
 
-#endif
-
-		PVOID RopGadgets[0x512 / sizeof(PVOID)] = { 0 };
-		PVOID DLLPathAddress = (PBYTE)WritableAddress + 5 * sizeof(PVOID);
-		PVOID LoadLibraryPtr = Process::getFunctionAddress(L"Kernel32.dll", "LoadLibraryA");
-
-		RopGadgets[0] = PopEaxRet;		// pop eax; ret
-		RopGadgets[1] = LoadLibraryPtr; //		<argv> -- <loadLibraryA>
-		RopGadgets[2] = CallEaxRet;		// call eax; ret
-		RopGadgets[3] = DLLPathAddress;	//		<argv> -- dll path
-		RopGadgets[4] = SelfLoop;		// <self-loop>
-
-		// copy dll path to the end of ROP gadgets
-		memcpy_s(
-			&RopGadgets[5],
-			sizeof(RopGadgets) - (&RopGadgets[5] - RopGadgets),
-			&dllPath[0],
+		// write dll path
+		process.writeMemory(
+			*DllPathMemory,
+			(PVOID) &dllPath[0],
 			dllPath.size()
 		);
 
-#endif
-
+		// write rop gadgets
 		process.writeMemory(
-			WritableAddress,
+			*RopGadgetMemory,
 			RopGadgets,
-			sizeof(RopGadgets[0]) * 5 + dllPath.size()
+			11 * sizeof(RopGadgets[0])
 		);
 
+#else
+
+		CallAxRet = process.findInstruction("\xFF\xD0\xC3");  // call [e|r]ax; ret
+		
+		if (!PushSpRet || !SelfLoop || !PopAxRet || !CallAxRet) {
+			printf("Failed to find ROP gadgets\n");
+			return E_FAIL;
+		}
+
+		size_t DllPathOffset = 64;
+
+		PVOID RopGadgets[0x512 / sizeof(PVOID)] = { 0 };
+		PVOID LoadLibraryPtr = Process::getFunctionAddress(L"Kernel32.dll", "LoadLibraryA");
+
+		RopGadgets[0] = PopAxRet;		// pop eax; ret
+		RopGadgets[1] = LoadLibraryPtr; //		<argv> -- <loadLibraryA>
+		RopGadgets[2] = CallAxRet;		// call eax; ret
+		RopGadgets[3] = *DllPathMemory;	//		<argv> -- dll path
+		RopGadgets[4] = SelfLoop;		// <self-loop>
+
+		// write dll pat
+		process.writeMemory(
+			*DllPathMemory,
+			(PVOID)&dllPath[0],
+			dllPath.size()
+		);
+
+		// write rop gadgets
+		process.writeMemory(
+			*RopGadgetMemory,
+			RopGadgets,
+			5 * sizeof(RopGadgets[0])
+		);
+
+#endif
+
+		//
+		// enumerate all threads in target process
+		//
 
 		Process::ThreadList_t ThreadList = process.getThreadList();
 
@@ -163,23 +173,24 @@ namespace Injector
 		{
 			ExitSignal = FALSE;
 
-			//
-			// EXPERIMENT
-			//
+			Process::ThreadState state = thread.getState();
 
-			// check if thread is suspended even after resuming
-			//Util::isThreadSuspended(tid);
-
-			//break;
+			// continue if we find unsuitable thread
+			if (
+				state.state != Waiting ||
+				state.wait_reason != DelayExecution &&
+				state.wait_reason != UserRequest
+				)
+			{
+				continue;
+			}
 
 			dwRet = thread.Suspend();
-
 			if (dwRet == (DWORD)-1) {
 				continue;
 			}
 
 			ctx = thread.getContext();
-
 			OriginalContext = ctx;  // backup original context
 
 #ifdef _WIN64
@@ -192,57 +203,13 @@ namespace Injector
 			ctx.Esp -= sizeof(PVOID);       // allocate area for ROP gadget
 #endif
 
-		//
-		// NOTE:
-		// how to fix this fuckup
-		// ideas:
-		//
-		// 1) check threads start base address, if it is coming from
-		//    let say ntdll, then it might be not safe to suspend
-		//    the thread
-		//    
-		//    NOTE: walk up the stack, check if value in stack is
-		//          address and it points to executable page
-		//
-		//		UPDATE: done, but i check for current EIP not in ntdll, not call stack
-		//
-		// 2) redo the ROP gadget. return back to previous code and
-		//    continue execution after we've finished our DLL loading
-		//
-		//   NOTE: concern about how to know if our DLL is loaded is 
-		//         simple. if let say, we set context to thread and 
-		//         resume it back. If it doesn't work, IP register
-		//         will not move. If it does, our code does work
-		//         but then it is up to the program if it crashes
-		//         or not.
-		//
-		//   IDEA: maybe we don't need to suspend/resume at all
-		//         to check if our thread IP reg moves. If it doesn't
-		//         move, then every registers will not affect either.
-		//         This is just a theory, we need to test this.
-		//		
-		//			UPDATE: DONE
-		//
-		//	 IDEA: Maybe after resuming, we check status of thread after
-		//         that. If thread is stuck (EIP not moving), maybe
-		//         can we know from there.
-		//
-		// 3) check if we need to align the stack into 16-byte, this
-		//    is especially important if library code uses modern CPU
-		//    instruction (eq; FPU)
-		//   Ref: https://stackoverflow.com/a/53519429/1768052
-		//   
-		//		UPDATE: DONE
-		//
-
-
 			process.writeMemory(
 #ifdef _WIN64
-			(PVOID) ctx.Rsp,
+				(PVOID) ctx.Rsp,
 #else
 				(PVOID)ctx.Esp,
 #endif
-				& WritableAddress,
+				&RopGadgetMemory.addr,
 				sizeof(PVOID)
 			);
 
@@ -252,19 +219,18 @@ namespace Injector
 
 			thread.setContext(&ctx);
 			dwRet = thread.Resume();
-
 			if (dwRet == (DWORD)-1) {
 				continue;
 			}
 
 			//
-			// now we want to check its progression (whether it works or not)
+			// now we want to check hijacked thread progression (whether it works or not)
 			//
 
 			DWORD total_sleep = 0;
 			DWORD counter = 1;
 
-			// control 
+			// control on how to wait for thread to get "signaled"
 			const DWORD SLEEP_TIME_PER_WAIT = 1000;
 			const DWORD SLEEP_TOTAL_LIMIT = 3000;
 
@@ -274,7 +240,7 @@ namespace Injector
 				process.getSymbolFromAddress(OriginalIP).c_str()
 			);
 
-
+			// periodically check hijacked thread state
 			do {
 
 				Sleep(SLEEP_TIME_PER_WAIT);
@@ -295,6 +261,7 @@ namespace Injector
 				);
 
 #ifdef _WIN64
+				IpMoved = ctx.Rip != (DWORD)PushSpRet;
 				ExitSignal = (DWORD64)SelfLoop == ctx.Rip;
 #else
 				IpMoved = ctx.Eip != (DWORD)PushSpRet;
@@ -303,7 +270,7 @@ namespace Injector
 				total_sleep += SLEEP_TIME_PER_WAIT;
 				counter++;
 
-				if (IpMoved)
+				if (!ExitSignal && IpMoved)
 				{
 					printf("\n\n");
 					printf("IP in thread (0x%x) moved but not hitting our\n", tid);
@@ -316,14 +283,13 @@ namespace Injector
 
 			printf("\n");
 
-			//
-			// replace with ROP gadget that returns to main execution
-			//
-			//RAII::SuspendThread clean_context(hThread.get());
-			//clean_context.set_context(&OriginalContext);
-			//clean_context.resume();
+			// restore thread original context
+			thread.Suspend();
+			thread.setContext(&OriginalContext);
+			thread.Resume();
 
 			if (ExitSignal || IpMoved) {
+				printf("\n");
 				printf("Gained code execution within thread [0x%x]\n", tid);
 				printf("\n");
 				break;

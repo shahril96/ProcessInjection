@@ -50,7 +50,6 @@ namespace Process
 		struct allocateMemory
 		{
 			HANDLE hProcess;
-			BOOL   isToFreeMemory;
 			PVOID  addr;
 			size_t size;
 			DWORD  protect;
@@ -76,7 +75,7 @@ namespace Process
 				reset(_hProcess, _size, _protect, _allocation_type);
 			}
 
-			PVOID operator=(allocateMemory& other)
+			void operator=(allocateMemory& other)
 			{
 				hProcess = other.hProcess;
 				addr = other.addr;

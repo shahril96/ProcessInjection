@@ -120,7 +120,7 @@ namespace Process
 
     ByteArray_t QuerySystemInformation(
         SYSTEM_INFORMATION_CLASS InfoClass,
-        size_t StructureSize = 0       // 0 if size is unspecified
+        DWORD StructureSize = 0       // 0 if size is unspecified
     )
     {
         DWORD                      dwRet = StructureSize ? StructureSize : 32;
@@ -138,7 +138,7 @@ namespace Process
             nRet = _NtQuerySystemInformation(
                 InfoClass,
                 &Buffer[0],
-                Buffer.size(),
+                (ULONG) Buffer.size(),
                 &dwRet
             );
         } while (FAILED(nRet) && nRet == STATUS_INFO_LENGTH_MISMATCH);
@@ -154,7 +154,7 @@ namespace Process
     ByteArray_t QueryInformationProcess(
         HANDLE hProcess,
         PROCESSINFOCLASS InfoClass,
-        size_t StructureSize = 0       // 0 if size is unspecified
+        DWORD StructureSize = 0       // 0 if size is unspecified
     )
     {
         DWORD                       dwRet = StructureSize ? StructureSize : 32;
@@ -173,7 +173,7 @@ namespace Process
                 hProcess,
                 InfoClass,
                 &Buffer[0],
-                Buffer.size(),
+                (ULONG) Buffer.size(),
                 &dwRet
             );
         } while (FAILED(nRet) && nRet == STATUS_INFO_LENGTH_MISMATCH);
@@ -189,7 +189,7 @@ namespace Process
     ByteArray_t QueryInformationThread(
         HANDLE hThread,
         THREADINFOCLASS InfoClass,
-        size_t StructureSize = 0       // 0 if size is unspecified
+        DWORD StructureSize = 0       // 0 if size is unspecified
     )
     {
         DWORD                       dwRet = StructureSize ? StructureSize : 32;
@@ -208,7 +208,7 @@ namespace Process
                 hThread,
                 InfoClass,
                 &Buffer[0],
-                Buffer.size(),
+                (ULONG) Buffer.size(),
                 &dwRet
             );
 

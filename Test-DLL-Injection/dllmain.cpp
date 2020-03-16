@@ -6,19 +6,23 @@ BOOL APIENTRY DllMain(HINSTANCE hInstDLL, DWORD fdwReason, PVOID lpvReserved)
     switch (fdwReason)
     {
     case DLL_PROCESS_ATTACH:
-        MessageBoxA(NULL, "Hello From The Injected DLL", "Injected !", MB_OK | MB_ICONINFORMATION);
+        printf("DLL_PROCESS_ATTACH: Hello From The Injected DLL\n");
+        Beep(750, 300);
         break;
 
     case DLL_THREAD_ATTACH:
-        MessageBoxA(NULL, "Hello From The Injected DLL", "Injected !", MB_OK | MB_ICONINFORMATION);
+        printf("DLL_THREAD_ATTACH: Hello From The Injected DLL\n");
+        Beep(750, 300);
         break;
 
     case DLL_THREAD_DETACH:
-        MessageBoxA(NULL, "Hello Again From The Injected DLL", "Injected !", MB_OK | MB_ICONINFORMATION);
+        printf("DLL_THREAD_DETACH: Hello Again From The Injected DLL\n");
+        Beep(750, 300);
         break;
 
     case DLL_PROCESS_DETACH:
-        MessageBoxA(NULL, "Hello Again From The Injected DLL", "Injected !", MB_OK | MB_ICONINFORMATION);
+        printf("DLL_PROCESS_DETACH: Hello Again From The Injected DLL\n");
+        Beep(750, 300);
         break;
     }
 

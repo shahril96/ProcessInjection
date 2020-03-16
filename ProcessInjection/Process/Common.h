@@ -16,6 +16,7 @@
 #include <locale>
 #include <memory>
 #include <vector>
+#include <random>
 #include <codecvt>
 #include <algorithm>
 #include <functional>

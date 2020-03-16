@@ -48,7 +48,7 @@ private:
         // TODO: only support process which has the same bitness
         // TODO: study wow64
         //
-        if (Error = isWow64(pid) != isWow64(::GetCurrentProcessId())) {
+        if (Error = (isWow64(pid) != isWow64(::GetCurrentProcessId()))) {
             ErrorStr = "This injector bitness is incompatible with target process";
             return;
         }
@@ -155,7 +155,7 @@ public:
     {
         DWORD dwRet;
         std::wstring wBaseName(MAX_PATH, '\0');
-        dwRet = GetModuleBaseName(hProcess, NULL, &wBaseName[0], wBaseName.size());
+        dwRet = GetModuleBaseName(hProcess, NULL, &wBaseName[0], (DWORD) wBaseName.size());
 
         if (!dwRet)
         {
@@ -218,7 +218,7 @@ public:
         bRet = ::EnumProcessModulesEx(
             hProcess,
             (HMODULE*) &ModBuffer[0],
-            ModBuffer.size(),
+            (DWORD) ModBuffer.size(),
             &ModCount,
             LIST_MODULES_DEFAULT
         );
@@ -245,21 +245,31 @@ public:
                 hProcess,
                 modlistr[i],
                 &ModuleBaseName[0],
-                GetStlContainerBufferSize(ModuleBaseName)
+                (DWORD) GetStlContainerBufferSize(ModuleBaseName)
             );
 
-            if (!dRet) continue;
+            if (!dRet) {
+                ModuleBaseName = L"";
+            }
+            else {
+                ModuleBaseName.resize(dRet);
+            }
+
+            // resize to true string size
+            ModuleBaseName.resize(dRet);
 
             dRet = ::GetModuleFileName(
                 modlistr[i],
                 &ModuleFileName[0],
-                GetStlContainerBufferSize(ModuleFileName)
+                (DWORD) GetStlContainerBufferSize(ModuleFileName)
             );
 
-            if (!dRet) continue;
-
-            // resize to true string size
-            ModuleBaseName.resize(dRet);
+            if (!dRet) {
+                ModuleFileName = L"";
+            }
+            else {
+                ModuleFileName.resize(dRet);
+            }
 
             bRet = ::GetModuleInformation(
                 hProcess,
@@ -288,7 +298,7 @@ public:
 
         for (const Module& module: ModuleList)
         {
-            PBYTE start = (PBYTE) module.EntryPoint;
+            PBYTE start = (PBYTE) module.BaseAddress;
             PBYTE   end = start + module.Size;
 
             // is in range of this module
@@ -344,18 +354,23 @@ public:
 
     BOOL writeMemory(PVOID addr, PVOID buf, size_t size)
     {
-        BOOL  bRet;
-        DWORD dwRet;
-        bRet = WriteProcessMemory(hProcess, addr, buf, size, &dwRet);
+        BOOL   bRet;
+        SIZE_T dwRet;
+        bRet = ::WriteProcessMemory(hProcess, addr, buf, size, &dwRet);
+        
+        if (!bRet) {
+            printf("WriteProcessMemory: 0x%x\n", ::GetLastError());
+        }
+
         return !bRet || dwRet != size;
     }
 
     ByteArray_t readMemory(PVOID addr, size_t size)
     {
         BOOL        bRet;
-        DWORD       dwRet;
+        SIZE_T      dwRet;
         ByteArray_t buf(size, 0);
-        bRet = ReadProcessMemory(hProcess, addr, &buf[0], buf.size(), &dwRet);
+        bRet = ::ReadProcessMemory(hProcess, addr, &buf[0], buf.size(), &dwRet);
         return std::move(buf);
     }
 
@@ -392,11 +407,6 @@ public:
 
         for (const auto& page : getPagesInfo())
         {
-            if (page.BaseAddress == (PVOID)0x00DD1000) {
-                printf("addr: %p\n", page.BaseAddress);
-                printf("protect = %x, protect = %x\n", page.Protect, Protect);
-            }
-
             if ((page.Protect & Protect) == 0) continue;
 
             ByteArray_t buffer = readMemory(page.BaseAddress, page.RegionSize);
@@ -440,15 +450,18 @@ public:
         return PatternList[0];
     }
 
-    PVOID findWritableAddress(size_t size, size_t Alignment)
+    PVOID findWritableAddress(size_t size, size_t Alignment = 1)
     {
-        PVOID ZeroStart;
+        const size_t   LIMIT = 5;
+        PVOID          ZeroStart;
+        PointerArray_t FreeAreaList;
 
         for (const auto& page : getPagesInfo())
         {
             if (
-                page.RegionSize <= 1024 * 512             // limit to page under 512kb size
-                && page.Type != MEM_IMAGE                 // find page in any image
+                FreeAreaList.size() < LIMIT
+                && page.RegionSize <= 1024 * 512          // limit to page under 512kb size
+                && page.Type != MEM_PRIVATE               // if not in private area
                 && page.Protect & PAGE_READWRITE          // must have r/w permission
                 )
             {
@@ -465,7 +478,7 @@ public:
                 // split memory by Alignment block
                 for (
                     size_t Address = buffer.size() / Alignment * (Alignment - 1);
-                    /**/;
+                    FreeAreaList.size() < LIMIT;
                     Address -= Alignment
                     )
                 {
@@ -486,13 +499,22 @@ public:
                     //
 
                     if (idx - Address == size) {
-                        return (PBYTE)page.BaseAddress + Address;
+                        FreeAreaList.push_back((PBYTE)page.BaseAddress + Address);
+                        break;
                     }
                 }
             }
         }
 
-        return NULL;
+        if (FreeAreaList.empty()) {
+            return NULL;
+        }
+
+        std::random_device rd; // obtain a random number from hardware
+        std::mt19937 eng(rd()); // seed the generator
+        std::uniform_int_distribution<> distr(0, FreeAreaList.size()-1); // define the range
+
+        return FreeAreaList[distr(eng)];
     }
 
     //
