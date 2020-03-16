@@ -13,35 +13,53 @@
       <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
       <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
     </Filter>
+    <Filter Include="Header Files\Process">
+      <UniqueIdentifier>{50c23f68-c34c-4849-99a1-474e75b950e0}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files\Process\Memory">
+      <UniqueIdentifier>{b217a533-0405-4d21-af4d-74ba0a178083}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files\Process\Module">
+      <UniqueIdentifier>{ca63aa48-b466-4800-9075-6e0c7a6a76e0}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files\Process\Thread">
+      <UniqueIdentifier>{9398b725-72f4-40a1-aae3-34d61c753e84}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files\Process\Unit">
+      <UniqueIdentifier>{5a4496ab-9363-4da5-85f2-5d03313783a7}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="injector.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="util.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="execute-code.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="util.h">
+    <ClInclude Include="Process\Thread\Thread.h">
+      <Filter>Header Files\Process\Thread</Filter>
+    </ClInclude>
+    <ClInclude Include="Process\Unit\Unit.h">
+      <Filter>Header Files\Process\Unit</Filter>
+    </ClInclude>
+    <ClInclude Include="Process\Common.h">
+      <Filter>Header Files\Process</Filter>
+    </ClInclude>
+    <ClInclude Include="Process\List.h">
+      <Filter>Header Files\Process</Filter>
+    </ClInclude>
+    <ClInclude Include="Process\Util.h">
+      <Filter>Header Files\Process</Filter>
+    </ClInclude>
+    <ClInclude Include="Process\Module\Module.h">
+      <Filter>Header Files\Process\Module</Filter>
+    </ClInclude>
+    <ClInclude Include="Process\RAII.h">
+      <Filter>Header Files\Process</Filter>
+    </ClInclude>
+    <ClInclude Include="Common.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="injector.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="execute-code.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="win_raii.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="nt.h">
+    <ClInclude Include="Injector.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

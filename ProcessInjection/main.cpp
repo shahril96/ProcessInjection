@@ -1,22 +1,18 @@
 // main.cpp : This file contains the 'main' function. Program execution begins and ends there.
 //
 
-#include <Windows.h>
+#include "Common.h"
 
-#include <iostream>
+#include "Injector.h"
+#include "Process\Process.h"
 
-#include "util.h"
-#include "injector.h"
+
 
 int main(int argc, char* argv[])
 {
 	DWORD   pid = NULL;
 	LPCSTR  dll;
 	HRESULT hRet;
-
-	// to determine bitness
-	BOOL currProcess;
-	BOOL targProcess;
 
 	if (argc != 3) {
 		printf("\n");
@@ -25,23 +21,18 @@ int main(int argc, char* argv[])
 		return EXIT_FAILURE;
 	}
 
-	dll = argv[2];
-	pid = Util::findWithProcessName(Util::ToUtf16(argv[1]).c_str());
+	Process::ProcessList Processes;
+	auto ProcessIterator = Processes.findProcessByName(argv[1]);
 
-	if (FAILED(pid)) {
+	if (ProcessIterator == Processes.end()) {
 		printf("\nFailed to find process id for '%s'\n", argv[1]);
 		return EXIT_FAILURE;
 	}
 
-	Util::isProcessNative(::GetCurrentProcessId(), &currProcess);
-	Util::isProcessNative(pid, &targProcess);
+	dll = argv[2];
+	pid = ProcessIterator->second.getPid();
 
-	if (currProcess != targProcess) {
-		printf("\nThis injector bitness is incompatible with target process\n");
-		return EXIT_FAILURE;
-	}
-
-	//hRet = Injector::WriteProcessMemory_CreateRemoteThread(pid, dll);
+	//hRet = Injector::WriteProcessMemory_APCInjector(Process::Process(pid), dll);
 	hRet = Injector::WriteProcessMemory_SuspendThreadResume(pid, dll);
 
 	if (hRet != S_OK) {

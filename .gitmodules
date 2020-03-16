@@ -1,0 +1,3 @@
+[submodule "ProcessInjection/phnt"]
+	path = ProcessInjection/phnt
+	url = https://github.com/processhacker/phnt.git
