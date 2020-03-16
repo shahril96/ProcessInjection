@@ -28,7 +28,7 @@ private:
             const PSYSTEM_EXTENDED_THREAD_INFORMATION pExThreadInfoList
             ) -> bool
         {
-            DWORD _pid = (DWORD)pProcessInfo->UniqueProcessId;
+            DWORD _pid = (DWORD) pProcessInfo->UniqueProcessId;
 
             Process p(_pid);
             if (!p.isError()) {

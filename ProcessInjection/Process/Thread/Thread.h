@@ -16,8 +16,8 @@ namespace Process
     private:
 
         // common
-        BOOL   _ShouldCloseHandle;
         HANDLE hThread;
+        BOOL   _ShouldCloseHandle;
         PVOID  StartAddress;
 
         // internal

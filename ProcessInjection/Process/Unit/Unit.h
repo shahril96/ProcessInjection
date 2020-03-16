@@ -14,8 +14,8 @@ class Process
 private:
 
     // common
-    BOOL   _ShouldCloseHandle;
     HANDLE hProcess;
+    BOOL   _ShouldCloseHandle;
 
     // internal
     PROCESS_BASIC_INFORMATION ProcessBasicInfo;
@@ -160,7 +160,6 @@ public:
         if (!dwRet)
         {
             printf("Error! Code: 0x%x\n", ::GetLastError());
-            //printf("%s\n", Util::getLastErrorAsString().c_str());
             return std::string();
         }
 
@@ -224,8 +223,6 @@ public:
         );
 
         if (!bRet) {
-            //printf("Error! Code: 0x%x\n", ::GetLastError());
-            printf("%s\n", getLastErrorAsString().c_str());
             return ModuleList_t();
         }
 
@@ -435,7 +432,7 @@ public:
             if (PatternList.size() >= CountLimit) break;
         }
 
-        return std::move(PatternList);
+        return PatternList;
     }
 
     PVOID findInstruction(const std::string& Pattern)
