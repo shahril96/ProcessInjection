@@ -7,8 +7,65 @@ namespace Process
 {
     struct ThreadState
     {
-        KTHREAD_STATE state;
-        KWAIT_REASON wait_reason;
+        std::string state;  // KTHREAD_STATE
+        std::string wait_reason;  // KWAIT_REASON
+    };
+
+    char StateStr[][30] = {
+        "Initialized",
+        "Ready",
+        "Running",
+        "Standby",
+        "Terminated",
+        "Waiting",
+        "Transition",
+        "DeferredReady",
+        "GateWaitObsolete",
+        "WaitingForProcessInSwap",
+        "MaximumThreadState"
+    };
+
+    char ReasonStr[][30] = {
+        "Executive",
+        "FreePage",
+        "PageIn",
+        "PoolAllocation",
+        "DelayExecution",
+        "Suspended",
+        "UserRequest",
+        "WrExecutive",
+        "WrFreePage",
+        "WrPageIn",
+        "WrPoolAllocation",
+        "WrDelayExecution",
+        "WrSuspended",
+        "WrUserRequest",
+        "WrEventPair",
+        "WrQueue",
+        "WrLpcReceive",
+        "WrLpcReply",
+        "WrVirtualMemory",
+        "WrPageOut",
+        "WrRendezvous",
+        "WrKeyedEvent",
+        "WrTerminated",
+        "WrProcessInSwap",
+        "WrCpuRateControl",
+        "WrCalloutStack",
+        "WrKernel",
+        "WrResource",
+        "WrPushLock",
+        "WrMutex",
+        "WrQuantumEnd",
+        "WrDispatchInt",
+        "WrPreempted",
+        "WrYieldExecution",
+        "WrFastMutex",
+        "WrGuardedMutex",
+        "WrRundown",
+        "WrAlertByThreadId",
+        "WrDeferredPreempt",
+        "MaximumWaitReason"
     };
 
     class Thread
@@ -18,7 +75,6 @@ namespace Process
         // common
         HANDLE hThread;
         BOOL   _ShouldCloseHandle;
-        PVOID  StartAddress;
 
         // internal
         SYSTEM_EXTENDED_THREAD_INFORMATION ExSystemThreadInfo;
@@ -172,16 +228,15 @@ namespace Process
 
         PVOID getEntryPointVA() const noexcept
         {
-            PVOID       StartAddress = SystemThreadInfo.StartAddress;
-            PVOID       StartAddressQuery;
+            PVOID       StartAddress;
             ByteArray_t buffer;
             
             // fetch from this API where possibly can
-            buffer = QueryInformationThread(hThread, ThreadQuerySetWin32StartAddress);
-            StartAddressQuery = (PVOID) &buffer[0];
+            buffer = QueryInformationThread(hThread, ThreadQuerySetWin32StartAddress, sizeof(PVOID));
+            StartAddress = *(PVOID *) &buffer[0];
 
-            if (StartAddressQuery) {
-                StartAddress = StartAddressQuery;
+            if (!StartAddress) {
+                StartAddress = SystemThreadInfo.StartAddress;
             }
             
             return StartAddress;
@@ -207,19 +262,34 @@ namespace Process
             return FALSE;
         }
 
+        size_t getContextSwitchDelta(size_t duration)
+        {
+            ULONG before;
+            ULONG after;
+
+            UpdateQueryInfo();
+            before = SystemThreadInfo.ContextSwitches;
+            Sleep(duration);
+            UpdateQueryInfo();
+            after = SystemThreadInfo.ContextSwitches;
+
+            return after - before;
+        }
+
         ThreadState getState()
         {
             UpdateQueryInfo();
+
             return {
-                SystemThreadInfo.ThreadState,
-                SystemThreadInfo.WaitReason
+                StateStr[SystemThreadInfo.ThreadState], 
+                ReasonStr[SystemThreadInfo.WaitReason]
             };
         }
 
         BOOL isSuspended() noexcept
         {
             ThreadState state = getState();
-            return state.state == Waiting && state.wait_reason == Suspended;
+            return state.state == "Waiting" && state.wait_reason == "Suspended";
         }
 
         DWORD Suspend() noexcept

@@ -53,6 +53,12 @@ namespace Injector
 		return !dwRet ? S_OK : E_FAIL;
 	}
 
+	// status:
+	//   x86 = minor possibility to crash
+	//   x64 = high chance to crash
+	//
+	// TODO: just use direct shellcode instead of ROP gadgets
+	//
 	HRESULT WriteProcessMemory_SuspendThreadResume(
 		Process::Process process,
 		const std::string& dllPath
@@ -85,7 +91,7 @@ namespace Injector
 		SelfLoop   = process.findInstruction("\xEB\xFE");      // jmp short -2
 		PopAxRet   = process.findInstruction("\x58\xC3");      // pop [e|r]ax; ret
 		PopCxRet   = process.findInstruction("\x59\xC3");      // pop [e|r]cx; ret
-		
+
 #ifdef _WIN64
 
 		PushRaxJmpRbx = process.findInstruction("\xFF\xD0\x90\x48\x83\xC4\x28\xC3"); 
@@ -178,11 +184,37 @@ namespace Injector
 
 			Process::ThreadState state = thread.getState();
 
+			//
+			// DEBUG (don't remove until stable)
+			//
+
+			// HEURISTIC: if thread is too busy, avoid hijacking
+			/*if (thread.getContextSwitchDelta(1000) > 0xa0)
+			{
+				printf("Thread too busy. Skipping...");
+
+				// restore thread original context
+				thread.setContext(&OriginalContext);
+				thread.Resume();
+				continue;
+			}*/
+
+			/*state = thread.getState();
+			printf("\n");
+			printf("[Before] State  = %s\n", state.state.c_str());
+			printf("[Before] Reason = %s\n", state.wait_reason.c_str());
+			printf("\n");*/
+
+			//
+			// END DEBUG
+			//
+
+
 			// continue if we find unsuitable thread
 			if (
-				state.state != Waiting ||
-				state.wait_reason != DelayExecution &&
-				state.wait_reason != UserRequest
+				state.state != "Waiting" ||
+				state.wait_reason != "DelayExecution" &&
+				state.wait_reason != "UserRequest"
 				)
 			{
 				continue;
@@ -195,6 +227,38 @@ namespace Injector
 
 			ctx = thread.getContext();
 			OriginalContext = ctx;  // backup original context
+
+			//
+			// EXPERIMENT
+			//
+
+
+			/*
+#ifdef _WIN64
+			std::string modName = process.getModuleNameByVA((PVOID)ctx.Rip);
+			std::string symbolName = process.getSymbolFromAddress((PVOID)ctx.Rip);
+#else
+			std::string modName = process.getModuleNameByVA((PVOID)ctx.Eip);
+			std::string mod_name = process.getSymbolFromAddress((PVOID)ctx.Eip);
+#endif
+
+			printf(
+				"\nStart address: %s\n",
+				process.getSymbolFromAddress(thread.getEntryPointVA()).c_str()
+			);
+
+			
+			printf("\n\nModule: %s\n\n", symbolName.c_str());
+			
+			if (!_stricmp(modName.c_str(), "ntdll.dll")) {
+				thread.setContext(&OriginalContext);
+				thread.Resume();
+				continue;
+			}*/
+
+			//
+			// END EXPERIMENT
+			//
 
 #ifdef _WIN64
 			PVOID OriginalIP = (PVOID)ctx.Rip;
@@ -225,6 +289,31 @@ namespace Injector
 			if (dwRet == (DWORD)-1) {
 				continue;
 			}
+
+			//
+			// DEBUG (don't remove until stable)
+			//
+
+			/*state = thread.getState();
+			printf("\n");
+			printf("[After] State  = %s\n", state.state.c_str());
+			printf("[After] Reason = %s\n", state.wait_reason.c_str());
+			printf("\n");
+			printf("PushSpRet : 0x%p\n", PushSpRet);
+			printf("SelfLoop  : 0x%p\n", SelfLoop);
+			printf("\n");
+
+			if (state.state == "Waiting" && state.wait_reason == "Executive") {
+				// restore thread original context
+				thread.Suspend();
+				thread.setContext(&OriginalContext);
+				thread.Resume();
+				continue;
+			}*/
+
+			//
+			// END DEBUG
+			//
 
 			//
 			// now we want to check hijacked thread progression (whether it works or not)
