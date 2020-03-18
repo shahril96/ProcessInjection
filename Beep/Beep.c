@@ -90,14 +90,6 @@ int main()
     HANDLE   hThread;
     PVOID    cookie;
 
-    // test
-    fnLoadLibraryA LoadLibraryAddr = (fnLoadLibraryA)GetProcAddress(
-        GetModuleHandle(L"kernel32.dll"),
-        "LoadLibraryA"
-    );
-
-    LoadLibraryAddr("ntdll.dll");
-
     LdrRegisterDllNotification _LdrRegisterDllNotification = (LdrRegisterDllNotification) GetProcAddress(
         GetModuleHandle(L"ntdll.dll"),
         "LdrRegisterDllNotification"

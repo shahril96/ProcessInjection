@@ -372,4 +372,81 @@ namespace Injector
 		return ExitSignal ? S_OK : E_FAIL;
 	}
 
+	HRESULT CreateFileMapping_MapViewOfFile(
+		Process::Process process,
+		const std::string& data,
+		std::function<void(PVOID addr)> callback
+	)
+	{
+		HANDLE FileMapping;
+		PVOID  MappedAddress;
+		fnNtMapViewOfSection _NtMapViewOfSection;
+
+		FileMapping = ::CreateFileMappingA(
+			INVALID_HANDLE_VALUE,
+			NULL,
+			PAGE_EXECUTE_READWRITE,
+			0,
+			data.size(),
+			NULL
+		);
+
+		if (!FileMapping) {
+			printf("CreateFileMappingA: 0x%x\n", ::GetLastError());
+			return E_FAIL;
+		}
+
+		MappedAddress = ::MapViewOfFile(
+			FileMapping,
+			FILE_MAP_ALL_ACCESS,
+			0,
+			0,
+			0
+		);
+
+		if (!MappedAddress) {
+			printf("MapViewOfFile: 0x%x\n", ::GetLastError());
+			CloseHandle(FileMapping);
+			return E_FAIL;
+		}
+
+		memcpy(MappedAddress, data.c_str(), data.size());
+
+		_NtMapViewOfSection = (fnNtMapViewOfSection) Process::getFunctionAddress(
+			L"ntdll.dll",
+			"NtMapViewOfSection"
+		);
+
+		PVOID    baseAddr = 0;
+		SIZE_T   ViewSize = 0;
+		NTSTATUS nRet;
+
+		nRet = _NtMapViewOfSection(
+			FileMapping,
+			*process,
+			&baseAddr,
+			0,
+			data.size(),
+			NULL,
+			&ViewSize,
+			ViewUnmap,
+			0,
+			PAGE_EXECUTE_READWRITE
+		);
+
+		if (FAILED(nRet)) {
+			UnmapViewOfFile(MappedAddress);
+			CloseHandle(FileMapping);
+			printf("NtMapViewOfSection: 0x%x\n", nRet);
+			return E_FAIL;
+		}
+
+		callback(baseAddr);
+
+		UnmapViewOfFile(MappedAddress);
+		CloseHandle(FileMapping);
+
+		return SUCCEEDED(nRet);
+	}
+
 };

@@ -31,9 +31,18 @@ int main(int argc, char* argv[])
 	pid = ProcessIterator->second.getPid();
 
 	//hRet = Injector::WriteProcessMemory_CreateRemoteThread(Process::Process(pid), dll);
-	hRet = Injector::WriteProcessMemory_SuspendThreadResume(pid, dll);
+	//hRet = Injector::WriteProcessMemory_SuspendThreadResume(pid, dll);
 
-	if (hRet != S_OK) {
+	hRet = Injector::CreateFileMapping_MapViewOfFile(
+		pid,
+		"It works!",
+		[](PVOID addr) {
+			printf("Addr: %p\n", addr);
+			_getch();
+		}
+	);
+
+	if (FAILED(hRet)) {
 		printf("\nDLL Injection failed!\n");
 		return EXIT_FAILURE;
 	}
